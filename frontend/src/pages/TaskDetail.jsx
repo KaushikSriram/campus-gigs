@@ -67,6 +67,16 @@ export default function TaskDetail() {
     }
   };
 
+  const handleUnaccept = async () => {
+    if (!confirm('Release this task? It will go back to open status.')) return;
+    try {
+      await api.post(`/tasks/${id}/unaccept`);
+      fetchTask();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to release task');
+    }
+  };
+
   const handleComplete = async () => {
     try {
       await api.post(`/tasks/${id}/complete`);
@@ -136,7 +146,7 @@ export default function TaskDetail() {
 
       <div className="task-info-grid">
         <div className="task-info-item">
-          <div className="task-info-label">Posted By</div>
+          <div className="task-info-label">Posted by</div>
           <div className="task-info-value">
             <Link to={`/profile/${task.poster_id}`}>{task.poster_name}</Link>
           </div>
@@ -151,9 +161,15 @@ export default function TaskDetail() {
           <div className="task-info-label">Posted</div>
           <div className="task-info-value">{new Date(task.created_at + 'Z').toLocaleDateString()}</div>
         </div>
+        {task.due_date && (
+          <div className="task-info-item">
+            <div className="task-info-label">Due by</div>
+            <div className="task-info-value">{new Date(task.due_date).toLocaleDateString()}</div>
+          </div>
+        )}
         {task.accepted_by && (
           <div className="task-info-item">
-            <div className="task-info-label">Accepted By</div>
+            <div className="task-info-label">Accepted by</div>
             <div className="task-info-value">
               <Link to={`/profile/${task.accepted_by}`}>{task.acceptor_name}</Link>
             </div>
@@ -167,24 +183,27 @@ export default function TaskDetail() {
 
       <div className="task-actions">
         {task.status === 'open' && !isPoster && (
-          <button className="btn btn-success" onClick={handleAccept}>Accept This Task</button>
+          <button className="btn btn-success" onClick={handleAccept}>I'll do this</button>
         )}
         {task.status === 'accepted' && isPoster && (
-          <button className="btn btn-success" onClick={handleComplete}>Mark as Completed</button>
+          <button className="btn btn-success" onClick={handleComplete}>Mark as done</button>
+        )}
+        {task.status === 'accepted' && isParticipant && (
+          <button className="btn btn-secondary" onClick={handleUnaccept}>Release task</button>
         )}
         {isPoster && task.status !== 'completed' && task.status !== 'cancelled' && (
-          <button className="btn btn-danger" onClick={handleCancel}>Cancel Task</button>
+          <button className="btn btn-danger" onClick={handleCancel}>Cancel</button>
         )}
       </div>
 
       {/* Messaging section */}
       {isParticipant && task.accepted_by && (
-        <div style={{ marginBottom: '32px' }}>
+        <div style={{ marginBottom: '28px' }}>
           <h3 className="section-title">Messages</h3>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div className="chat-messages" style={{ maxHeight: '400px' }}>
+            <div className="chat-messages" style={{ maxHeight: '360px' }}>
               {messages.length === 0 ? (
-                <div className="chat-empty" style={{ padding: '40px' }}>No messages yet. Start the conversation!</div>
+                <div className="chat-empty" style={{ padding: '36px' }}>No messages yet. Say hi!</div>
               ) : (
                 messages.map(msg => (
                   <div key={msg.id} className={`message-bubble ${msg.sender_id === user.id ? 'message-sent' : 'message-received'}`}>
@@ -214,8 +233,8 @@ export default function TaskDetail() {
 
       {/* Review section */}
       {task.status === 'completed' && isParticipant && !hasReviewed && (
-        <div style={{ marginBottom: '32px' }}>
-          <h3 className="section-title">Leave a Review</h3>
+        <div style={{ marginBottom: '28px' }}>
+          <h3 className="section-title">Leave a review</h3>
           <form onSubmit={handleReview} className="card">
             <div className="form-group">
               <label>Rating</label>
@@ -242,7 +261,7 @@ export default function TaskDetail() {
                 rows={3}
               />
             </div>
-            <button type="submit" className="btn btn-primary">Submit Review</button>
+            <button type="submit" className="btn btn-primary">Submit review</button>
           </form>
         </div>
       )}

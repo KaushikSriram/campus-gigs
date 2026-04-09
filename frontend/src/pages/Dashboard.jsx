@@ -14,20 +14,29 @@ const CATEGORIES = [
   { value: 'other', label: 'Other' },
 ];
 
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'fee_high', label: 'Highest pay' },
+  { value: 'fee_low', label: 'Lowest pay' },
+  { value: 'deadline', label: 'Due soonest' },
+];
+
 export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
 
   useEffect(() => {
     fetchTasks();
-  }, [category]);
+  }, [category, sort]);
 
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const params = { status: 'open' };
+      const params = { status: 'open', sort };
       if (category) params.category = category;
       if (search) params.search = search;
       const res = await api.get('/tasks', { params });
@@ -47,8 +56,8 @@ export default function Dashboard() {
   return (
     <div>
       <div className="dashboard-header">
-        <h1>Available Tasks</h1>
-        <Link to="/post" className="btn btn-primary">+ Post a Task</Link>
+        <h1>What needs doing?</h1>
+        <Link to="/post" className="btn btn-primary">+ Post a task</Link>
       </div>
 
       <form onSubmit={handleSearch} className="filters">
@@ -59,6 +68,16 @@ export default function Dashboard() {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        <select
+          className="form-control"
+          value={sort}
+          onChange={e => setSort(e.target.value)}
+          style={{ width: 'auto', minWidth: 130 }}
+        >
+          {SORT_OPTIONS.map(s => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
         <button type="submit" className="btn btn-secondary">Search</button>
       </form>
 
@@ -79,7 +98,7 @@ export default function Dashboard() {
         <div className="loading">Loading tasks...</div>
       ) : tasks.length === 0 ? (
         <div className="empty-state">
-          <h3>No tasks found</h3>
+          <h3>Nothing here yet</h3>
           <p>Be the first to post a task or try a different filter!</p>
         </div>
       ) : (

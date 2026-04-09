@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import UniversitySearch from '../components/UniversitySearch';
 
 export default function Register() {
   const [form, setForm] = useState({ name: '', email: '', password: '', university: '' });
@@ -22,6 +23,11 @@ export default function Register() {
       return;
     }
 
+    if (!form.university.trim()) {
+      setError('Please select your university');
+      return;
+    }
+
     if (form.password.length < 6) {
       setError('Password must be at least 6 characters');
       return;
@@ -40,7 +46,7 @@ export default function Register() {
 
   return (
     <div className="auth-page">
-      <h1>Join CampusGigs</h1>
+      <h1>Join Clutch</h1>
       <p className="subtitle">Sign up with your university email to get started</p>
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -52,7 +58,7 @@ export default function Register() {
             type="text"
             name="name"
             className="form-control"
-            placeholder="John Doe"
+            placeholder="Your name"
             value={form.name}
             onChange={handleChange}
             required
@@ -69,17 +75,13 @@ export default function Register() {
             onChange={handleChange}
             required
           />
-          <small style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Must be a .edu email</small>
+          <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Must be a .edu email</small>
         </div>
         <div className="form-group">
-          <label>University Name</label>
-          <input
-            type="text"
-            name="university"
-            className="form-control"
-            placeholder="State University"
+          <label>University</label>
+          <UniversitySearch
             value={form.university}
-            onChange={handleChange}
+            onChange={(val) => setForm({ ...form, university: val })}
             required
           />
         </div>
@@ -97,7 +99,7 @@ export default function Register() {
           />
         </div>
         <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-          {loading ? 'Creating Account...' : 'Create Account'}
+          {loading ? 'Creating account...' : 'Create account'}
         </button>
       </form>
 

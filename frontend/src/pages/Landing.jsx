@@ -10,72 +10,72 @@ export default function Landing() {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <h1>Get Help. <span>Earn Money.</span><br />Right On Campus.</h1>
+        <h1>Got a task? <span>Post it.</span><br />Got time? <span>Pick one up.</span></h1>
         <p>
-          CampusGigs connects students who need help with quick tasks to fellow students
-          who want to earn money. Verified .edu emails only — you know they're legit.
+          Clutch is where students help each other out.
+          Post quick tasks, earn some cash, and keep it all on campus.
         </p>
         <div className="landing-buttons">
-          <Link to="/register" className="btn btn-primary btn-lg">Get Started</Link>
-          <Link to="/login" className="btn btn-secondary btn-lg">I Have an Account</Link>
+          <Link to="/register" className="btn btn-primary btn-lg">Get started</Link>
+          <Link to="/login" className="btn btn-secondary btn-lg">I have an account</Link>
         </div>
       </div>
 
       <div className="features-grid">
         <div className="card feature-card">
           <div className="feature-icon">&#127979;</div>
-          <h3>Campus Verified</h3>
-          <p>Only students with a valid .edu email can join. Everyone you interact with is from your university.</p>
+          <h3>Your campus only</h3>
+          <p>Tasks are scoped to your university. Everyone here is a fellow student.</p>
         </div>
         <div className="card feature-card">
           <div className="feature-icon">&#128176;</div>
-          <h3>Set Your Price</h3>
-          <p>Need help? Name your fee. Looking to earn? Browse tasks and pick the ones that pay what you want.</p>
+          <h3>Name your price</h3>
+          <p>Set the fee for your task. Browse what's available and pick what works for you.</p>
         </div>
         <div className="card feature-card">
           <div className="feature-icon">&#9889;</div>
-          <h3>Quick Tasks</h3>
-          <p>From moving furniture to tutoring sessions — post any task and get help from someone nearby in minutes.</p>
+          <h3>Quick stuff</h3>
+          <p>Moving boxes, tutoring, errands, tech help — whatever you need, someone's nearby.</p>
         </div>
         <div className="card feature-card">
           <div className="feature-icon">&#11088;</div>
-          <h3>Build Your Rep</h3>
-          <p>Rate and review after every task. Build a reputation as a reliable helper or great task poster.</p>
+          <h3>Build trust</h3>
+          <p>Leave reviews after each task. Reliable helpers rise to the top.</p>
         </div>
         <div className="card feature-card">
           <div className="feature-icon">&#128172;</div>
-          <h3>In-App Messaging</h3>
-          <p>Coordinate details directly in the app. Discuss logistics before accepting a task.</p>
+          <h3>Chat built in</h3>
+          <p>Work out the details right in the app before meeting up.</p>
         </div>
         <div className="card feature-card">
           <div className="feature-icon">&#128274;</div>
-          <h3>Safe & Secure</h3>
-          <p>University-only community means accountability. JWT-secured authentication keeps your data safe.</p>
+          <h3>.edu verified</h3>
+          <p>Only students with a university email can join. Real people, real accountability.</p>
         </div>
       </div>
 
       <div className="how-it-works">
-        <h2>How It Works</h2>
+        <h2>How it works</h2>
         <div className="steps">
           <div className="step">
             <div className="step-number">1</div>
-            <h3>Sign Up with .edu</h3>
-            <p>Create an account using your university email to verify you're a real student.</p>
+            <h3>Sign up with .edu</h3>
+            <p>Create an account with your university email.</p>
           </div>
           <div className="step">
             <div className="step-number">2</div>
-            <h3>Post or Browse</h3>
-            <p>Need help? Post a task with a description and fee. Want to earn? Browse available tasks.</p>
+            <h3>Post or browse</h3>
+            <p>Need help? Post a task. Want to earn? Browse what's available.</p>
           </div>
           <div className="step">
             <div className="step-number">3</div>
-            <h3>Connect & Coordinate</h3>
-            <p>Message each other to work out the details. Meet up and get the task done.</p>
+            <h3>Chat and meet up</h3>
+            <p>Message each other, sort out the details, get it done.</p>
           </div>
           <div className="step">
             <div className="step-number">4</div>
-            <h3>Complete & Review</h3>
-            <p>Mark the task as done, exchange payment, and leave a review for each other.</p>
+            <h3>Review each other</h3>
+            <p>Mark the task done and leave a review. Simple as that.</p>
           </div>
         </div>
       </div>

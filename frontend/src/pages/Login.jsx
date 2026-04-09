@@ -27,8 +27,8 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <h1>Welcome Back</h1>
-      <p className="subtitle">Log in to your CampusGigs account</p>
+      <h1>Welcome back</h1>
+      <p className="subtitle">Log in to your Clutch account</p>
 
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -56,7 +56,7 @@ export default function Login() {
           />
         </div>
         <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-          {loading ? 'Logging in...' : 'Log In'}
+          {loading ? 'Logging in...' : 'Log in'}
         </button>
       </form>
 

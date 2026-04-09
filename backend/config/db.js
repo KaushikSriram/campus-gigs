@@ -1,7 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const db = new DatabaseSync(path.join(__dirname, '..', 'campus_gigs.db'));
+const db = new DatabaseSync(path.join(__dirname, '..', 'stint.db'));
 
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
@@ -28,6 +28,7 @@ db.exec(`
     category TEXT NOT NULL,
     fee REAL NOT NULL,
     location TEXT DEFAULT '',
+    due_date TEXT,
     status TEXT DEFAULT 'open' CHECK(status IN ('open','accepted','in_progress','completed','cancelled')),
     accepted_by INTEGER,
     accepted_at DATETIME,

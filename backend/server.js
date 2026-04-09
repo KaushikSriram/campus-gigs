@@ -23,5 +23,5 @@ app.get('/api/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`CampusGigs API running on http://localhost:${PORT}`);
+  console.log(`Clutch API running on http://localhost:${PORT}`);
 });

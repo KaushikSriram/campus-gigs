@@ -13,7 +13,6 @@ router.get('/:id', auth, (req, res) => {
 
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Get task stats
   const posted = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE poster_id = ?').get(req.params.id);
   const completed = db.prepare(
     'SELECT COUNT(*) as count FROM tasks WHERE (poster_id = ? OR accepted_by = ?) AND status = ?'
@@ -32,7 +31,7 @@ router.get('/:id', auth, (req, res) => {
 
 // PUT /api/users/profile - update own profile
 router.put('/profile', auth, (req, res) => {
-  const { name, bio, phone, password } = req.body;
+  const { name, bio, phone, password, university } = req.body;
 
   if (password && password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -44,6 +43,7 @@ router.put('/profile', auth, (req, res) => {
   if (name) { updates.push('name = ?'); params.push(name.trim()); }
   if (bio !== undefined) { updates.push('bio = ?'); params.push(bio.trim()); }
   if (phone !== undefined) { updates.push('phone = ?'); params.push(phone.trim()); }
+  if (university) { updates.push('university = ?'); params.push(university.trim()); }
   if (password) { updates.push('password = ?'); params.push(bcrypt.hashSync(password, 10)); }
 
   if (updates.length === 0) {

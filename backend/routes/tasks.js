@@ -6,9 +6,9 @@ const router = express.Router();
 
 const CATEGORIES = ['moving', 'tutoring', 'errands', 'tech_help', 'cleaning', 'delivery', 'other'];
 
-// GET /api/tasks - list tasks with optional filters
+// GET /api/tasks - list tasks with optional filters and sorting
 router.get('/', auth, (req, res) => {
-  const { category, status = 'open', search, min_fee, max_fee } = req.query;
+  const { category, status = 'open', search, min_fee, max_fee, sort } = req.query;
 
   let query = `
     SELECT t.*, u.name AS poster_name, u.university AS poster_university, u.rating AS poster_rating
@@ -47,7 +47,23 @@ router.get('/', auth, (req, res) => {
   query += ' AND u.university = ?';
   params.push(req.user.university);
 
-  query += ' ORDER BY t.created_at DESC';
+  // Sorting
+  switch (sort) {
+    case 'fee_high':
+      query += ' ORDER BY t.fee DESC';
+      break;
+    case 'fee_low':
+      query += ' ORDER BY t.fee ASC';
+      break;
+    case 'deadline':
+      query += ' ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END, t.due_date ASC';
+      break;
+    case 'oldest':
+      query += ' ORDER BY t.created_at ASC';
+      break;
+    default:
+      query += ' ORDER BY t.created_at DESC';
+  }
 
   const tasks = db.prepare(query).all(...params);
   res.json(tasks);
@@ -72,7 +88,6 @@ router.get('/:id', auth, (req, res) => {
     return res.status(404).json({ error: 'Task not found' });
   }
 
-  // Get reviews for this task
   const reviews = db.prepare(`
     SELECT r.*, u.name AS reviewer_name
     FROM reviews r
@@ -85,7 +100,7 @@ router.get('/:id', auth, (req, res) => {
 
 // POST /api/tasks - create a task
 router.post('/', auth, (req, res) => {
-  const { title, description, category, fee, location } = req.body;
+  const { title, description, category, fee, location, due_date } = req.body;
 
   if (!title || !description || !category || fee == null) {
     return res.status(400).json({ error: 'Title, description, category, and fee are required' });
@@ -100,9 +115,9 @@ router.post('/', auth, (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO tasks (poster_id, title, description, category, fee, location)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(req.user.id, title.trim(), description.trim(), category, Number(fee), (location || '').trim());
+    INSERT INTO tasks (poster_id, title, description, category, fee, location, due_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(req.user.id, title.trim(), description.trim(), category, Number(fee), (location || '').trim(), due_date || null);
 
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(task);
@@ -116,7 +131,7 @@ router.put('/:id', auth, (req, res) => {
   if (task.poster_id !== req.user.id) return res.status(403).json({ error: 'Not your task' });
   if (task.status !== 'open') return res.status(400).json({ error: 'Can only edit open tasks' });
 
-  const { title, description, category, fee, location } = req.body;
+  const { title, description, category, fee, location, due_date } = req.body;
 
   db.prepare(`
     UPDATE tasks SET
@@ -125,9 +140,10 @@ router.put('/:id', auth, (req, res) => {
       category = COALESCE(?, category),
       fee = COALESCE(?, fee),
       location = COALESCE(?, location),
+      due_date = COALESCE(?, due_date),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(title, description, category, fee, location, req.params.id);
+  `).run(title, description, category, fee, location, due_date, req.params.id);
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   res.json(updated);
@@ -145,6 +161,25 @@ router.post('/:id/accept', auth, (req, res) => {
     UPDATE tasks SET status = 'accepted', accepted_by = ?, accepted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(req.user.id, req.params.id);
+
+  const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  res.json(updated);
+});
+
+// POST /api/tasks/:id/unaccept - release a task back to open
+router.post('/:id/unaccept', auth, (req, res) => {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (task.status !== 'accepted') return res.status(400).json({ error: 'Task is not in accepted state' });
+  if (task.accepted_by !== req.user.id && task.poster_id !== req.user.id) {
+    return res.status(403).json({ error: 'Only the poster or acceptor can release this task' });
+  }
+
+  db.prepare(`
+    UPDATE tasks SET status = 'open', accepted_by = NULL, accepted_at = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(req.params.id);
 
   const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
   res.json(updated);
@@ -195,12 +230,11 @@ router.post('/:id/review', auth, (req, res) => {
     return res.status(400).json({ error: 'Rating must be between 1 and 5' });
   }
 
-  // Determine who is being reviewed
   let revieweeId;
   if (req.user.id === task.poster_id) {
-    revieweeId = task.accepted_by; // poster reviews the helper
+    revieweeId = task.accepted_by;
   } else if (req.user.id === task.accepted_by) {
-    revieweeId = task.poster_id; // helper reviews the poster
+    revieweeId = task.poster_id;
   } else {
     return res.status(403).json({ error: 'Only task participants can leave reviews' });
   }
@@ -217,7 +251,6 @@ router.post('/:id/review', auth, (req, res) => {
     'INSERT INTO reviews (task_id, reviewer_id, reviewee_id, rating, comment) VALUES (?, ?, ?, ?, ?)'
   ).run(req.params.id, req.user.id, revieweeId, rating, (comment || '').trim());
 
-  // Update reviewee's average rating
   const stats = db.prepare(
     'SELECT AVG(rating) as avg_rating, COUNT(*) as count FROM reviews WHERE reviewee_id = ?'
   ).get(revieweeId);

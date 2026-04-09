@@ -26,24 +26,24 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <Link to={user ? '/dashboard' : '/'} className="navbar-brand">
-        CampusGigs
+        Clutch
       </Link>
       <div className="navbar-links">
         {user ? (
           <>
             <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'nav-active' : ''}>Browse</NavLink>
-            <NavLink to="/post" className={({ isActive }) => isActive ? 'nav-active' : ''}>Post Task</NavLink>
+            <NavLink to="/post" className={({ isActive }) => isActive ? 'nav-active' : ''}>Post</NavLink>
             <NavLink to="/my-tasks" className={({ isActive }) => isActive ? 'nav-active' : ''}>My Tasks</NavLink>
             <NavLink to="/messages" className={({ isActive }) => isActive ? 'nav-active' : ''}>
               Messages{unread > 0 && <span className="unread-badge">{unread}</span>}
             </NavLink>
             <NavLink to={`/profile/${user.id}`} className={({ isActive }) => isActive ? 'nav-active' : ''}>Profile</NavLink>
-            <button onClick={handleLogout} className="nav-btn">Logout</button>
+            <button onClick={handleLogout} className="nav-btn">Log out</button>
           </>
         ) : (
           <>
-            <NavLink to="/login" className={({ isActive }) => isActive ? 'nav-active' : ''}>Login</NavLink>
-            <Link to="/register" className="btn btn-primary btn-sm">Sign Up</Link>
+            <NavLink to="/login" className={({ isActive }) => isActive ? 'nav-active' : ''}>Log in</NavLink>
+            <Link to="/register" className="btn btn-primary btn-sm">Sign up</Link>
           </>
         )}
       </div>

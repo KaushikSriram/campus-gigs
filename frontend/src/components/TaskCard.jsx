@@ -28,7 +28,7 @@ export default function TaskCard({ task }) {
     <div className="card card-clickable task-card" onClick={() => navigate(`/task/${task.id}`)}>
       <div className="task-card-header">
         <div className="task-card-title">{task.title}</div>
-        <div className="task-card-fee">${Number(task.fee).toFixed(2)}</div>
+        <div className="task-card-fee">${Number(task.fee).toFixed(0)}</div>
       </div>
       <div className="task-card-description">{task.description}</div>
       <div className="task-card-footer">
@@ -38,6 +38,7 @@ export default function TaskCard({ task }) {
           {task.location && <span>{task.location}</span>}
         </div>
         <div className="task-card-meta">
+          {task.due_date && <span>due {new Date(task.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>}
           <span>{task.poster_name}</span>
           <span>{timeAgo(task.created_at)}</span>
         </div>
