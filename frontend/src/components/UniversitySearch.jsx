@@ -5,10 +5,12 @@ export default function UniversitySearch({ value, onChange, required }) {
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(!!value);
   const ref = useRef(null);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
-    setQuery(value || '');
+    if (value) { setQuery(value); setSelected(true); }
   }, [value]);
 
   useEffect(() => {
@@ -19,59 +21,72 @@ export default function UniversitySearch({ value, onChange, required }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  useEffect(() => {
-    if (query.length < 3) { setResults([]); return; }
-    const timeout = setTimeout(async () => {
-      setLoading(true);
+  const doSearch = (q) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`http://universities.hipolabs.com/search?name=${encodeURIComponent(query)}`);
+        const res = await fetch(`http://universities.hipolabs.com/search?name=${encodeURIComponent(q)}`);
         const data = await res.json();
         const unique = [...new Map(data.map(u => [u.name, u])).values()];
-        setResults(unique.slice(0, 8));
+        setResults(unique.slice(0, 6));
         setOpen(true);
-      } catch { setResults([]); }
-      finally { setLoading(false); }
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [query]);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+  };
+
+  const handleInput = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setSelected(false);
+    onChange('');
+    doSearch(val);
+  };
 
   const handleSelect = (name) => {
     setQuery(name);
+    setSelected(true);
     onChange(name);
     setOpen(false);
+    setResults([]);
   };
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <input
-        type="text"
-        className="form-control"
-        placeholder="Start typing your university..."
-        value={query}
-        onChange={e => { setQuery(e.target.value); onChange(e.target.value); }}
-        onFocus={() => results.length > 0 && setOpen(true)}
-        required={required}
-      />
-      {loading && <div style={{ position: 'absolute', right: 12, top: 10, fontSize: '0.75rem', color: 'var(--text-muted)' }}>searching...</div>}
+    <div ref={ref} className="uni-search">
+      <div className="uni-search-input-wrap">
+        <svg className="uni-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input
+          type="text"
+          className="form-control"
+          style={{ paddingLeft: 36 }}
+          placeholder="Search for your university..."
+          value={query}
+          onChange={handleInput}
+          onFocus={() => results.length > 0 && !selected && setOpen(true)}
+          required={required}
+        />
+        {loading && <span className="uni-search-spinner" />}
+        {selected && <span className="uni-search-check">✓</span>}
+      </div>
+      {!selected && query.length >= 2 && !loading && results.length === 0 && (
+        <div className="uni-search-hint">No results found. Keep typing...</div>
+      )}
+      {!selected && query.length > 0 && query.length < 2 && (
+        <div className="uni-search-hint">Type at least 2 characters</div>
+      )}
       {open && results.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-          background: 'white', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-          boxShadow: 'var(--shadow-lg)', maxHeight: 220, overflowY: 'auto', marginTop: 4,
-        }}>
+        <div className="uni-search-dropdown">
           {results.map((u, i) => (
-            <div
-              key={i}
-              onClick={() => handleSelect(u.name)}
-              style={{
-                padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem',
-                borderBottom: i < results.length - 1 ? '1px solid var(--border)' : 'none',
-              }}
-              onMouseEnter={e => e.target.style.background = 'var(--bg)'}
-              onMouseLeave={e => e.target.style.background = 'white'}
-            >
-              <div style={{ fontWeight: 500 }}>{u.name}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.country}</div>
+            <div key={i} className="uni-search-option" onClick={() => handleSelect(u.name)}>
+              <div className="uni-search-option-name">{u.name}</div>
+              <div className="uni-search-option-country">{u.country}</div>
             </div>
           ))}
         </div>

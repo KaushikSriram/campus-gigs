@@ -1,103 +1,143 @@
 const express = require('express');
-const db = require('../config/db');
+const supabase = require('../config/db');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
 
 // GET /api/messages/conversations - list all conversations for the current user
-router.get('/conversations', auth, (req, res) => {
-  const conversations = db.prepare(`
-    SELECT
-      m.task_id,
-      t.title AS task_title,
-      t.status AS task_status,
-      CASE WHEN m.sender_id = ? THEN m.receiver_id ELSE m.sender_id END AS other_user_id,
-      u.name AS other_user_name,
-      m.content AS last_message,
-      m.created_at AS last_message_at,
-      (SELECT COUNT(*) FROM messages m2
-       WHERE m2.task_id = m.task_id
-       AND m2.receiver_id = ?
-       AND m2.sender_id = CASE WHEN m.sender_id = ? THEN m.receiver_id ELSE m.sender_id END
-       AND m2.is_read = 0) AS unread_count
-    FROM messages m
-    JOIN tasks t ON m.task_id = t.id
-    JOIN users u ON u.id = CASE WHEN m.sender_id = ? THEN m.receiver_id ELSE m.sender_id END
-    WHERE m.id IN (
-      SELECT MAX(id) FROM messages
-      WHERE sender_id = ? OR receiver_id = ?
-      GROUP BY task_id, CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
-    )
-    ORDER BY m.created_at DESC
-  `).all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
+router.get('/conversations', auth, async (req, res) => {
+  try {
+    const { data: conversations, error } = await supabase
+      .rpc('get_conversations', { p_user_id: req.user.id });
 
-  res.json(conversations);
+    if (error) {
+      console.error('Conversations error:', error);
+      return res.status(500).json({ error: 'Failed to fetch conversations' });
+    }
+
+    res.json(conversations || []);
+  } catch (err) {
+    console.error('Conversations error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-// GET /api/messages/task/:taskId/user/:userId - get messages between current user and another user for a task
-router.get('/task/:taskId/user/:userId', auth, (req, res) => {
-  const { taskId, userId } = req.params;
+// GET /api/messages/task/:taskId/user/:userId - get messages between users for a task
+router.get('/task/:taskId/user/:userId', auth, async (req, res) => {
+  try {
+    const { taskId, userId } = req.params;
 
-  const messages = db.prepare(`
-    SELECT m.*, sender.name AS sender_name
-    FROM messages m
-    JOIN users sender ON m.sender_id = sender.id
-    WHERE m.task_id = ?
-    AND (
-      (m.sender_id = ? AND m.receiver_id = ?)
-      OR (m.sender_id = ? AND m.receiver_id = ?)
-    )
-    ORDER BY m.created_at ASC
-  `).all(taskId, req.user.id, userId, userId, req.user.id);
+    const { data: messages, error } = await supabase
+      .from('messages')
+      .select('*, sender:users!sender_id(name)')
+      .eq('task_id', taskId)
+      .or(
+        `and(sender_id.eq.${req.user.id},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${req.user.id})`
+      )
+      .order('created_at', { ascending: true });
 
-  // Mark messages as read
-  db.prepare(`
-    UPDATE messages SET is_read = 1
-    WHERE task_id = ? AND sender_id = ? AND receiver_id = ? AND is_read = 0
-  `).run(taskId, userId, req.user.id);
+    if (error) {
+      console.error('Messages fetch error:', error);
+      return res.status(500).json({ error: 'Failed to fetch messages' });
+    }
 
-  res.json(messages);
+    // Flatten sender name
+    const flat = (messages || []).map(m => ({
+      ...m,
+      sender_name: m.sender?.name,
+      sender: undefined
+    }));
+
+    // Mark messages as read
+    await supabase
+      .from('messages')
+      .update({ is_read: true })
+      .eq('task_id', taskId)
+      .eq('sender_id', userId)
+      .eq('receiver_id', req.user.id)
+      .eq('is_read', false);
+
+    res.json(flat);
+  } catch (err) {
+    console.error('Messages error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // POST /api/messages - send a message
-router.post('/', auth, (req, res) => {
-  const { task_id, receiver_id, content } = req.body;
+router.post('/', auth, async (req, res) => {
+  try {
+    const { task_id, receiver_id, content } = req.body;
 
-  if (!task_id || !receiver_id || !content) {
-    return res.status(400).json({ error: 'task_id, receiver_id, and content are required' });
+    if (!task_id || !receiver_id || !content) {
+      return res.status(400).json({ error: 'task_id, receiver_id, and content are required' });
+    }
+
+    if (receiver_id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot message yourself' });
+    }
+
+    // Verify task exists
+    const { data: task } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('id', task_id)
+      .maybeSingle();
+
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    // Verify receiver exists
+    const { data: receiver } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', receiver_id)
+      .maybeSingle();
+
+    if (!receiver) return res.status(404).json({ error: 'Receiver not found' });
+
+    const { data: message, error } = await supabase
+      .from('messages')
+      .insert({
+        task_id,
+        sender_id: req.user.id,
+        receiver_id,
+        content: content.trim()
+      })
+      .select('*, sender:users!sender_id(name)')
+      .single();
+
+    if (error) {
+      console.error('Message send error:', error);
+      return res.status(500).json({ error: 'Failed to send message' });
+    }
+
+    res.status(201).json({
+      ...message,
+      sender_name: message.sender?.name,
+      sender: undefined
+    });
+  } catch (err) {
+    console.error('Message send error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
-
-  if (receiver_id === req.user.id) {
-    return res.status(400).json({ error: 'Cannot message yourself' });
-  }
-
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
-
-  // Only the poster and acceptor (or someone interested) can message about a task
-  const receiver = db.prepare('SELECT id FROM users WHERE id = ?').get(receiver_id);
-  if (!receiver) return res.status(404).json({ error: 'Receiver not found' });
-
-  const result = db.prepare(
-    'INSERT INTO messages (task_id, sender_id, receiver_id, content) VALUES (?, ?, ?, ?)'
-  ).run(task_id, req.user.id, receiver_id, content.trim());
-
-  const message = db.prepare(`
-    SELECT m.*, u.name AS sender_name
-    FROM messages m JOIN users u ON m.sender_id = u.id
-    WHERE m.id = ?
-  `).get(result.lastInsertRowid);
-
-  res.status(201).json(message);
 });
 
 // GET /api/messages/unread-count - get total unread message count
-router.get('/unread-count', auth, (req, res) => {
-  const result = db.prepare(
-    'SELECT COUNT(*) as count FROM messages WHERE receiver_id = ? AND is_read = 0'
-  ).get(req.user.id);
+router.get('/unread-count', auth, async (req, res) => {
+  try {
+    const { count, error } = await supabase
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('receiver_id', req.user.id)
+      .eq('is_read', false);
 
-  res.json({ count: result.count });
+    if (error) return res.status(500).json({ error: 'Failed to get unread count' });
+
+    res.json({ count: count || 0 });
+  } catch (err) {
+    console.error('Unread count error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;
