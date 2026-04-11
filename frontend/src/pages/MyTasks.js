@@ -19,34 +19,9 @@ export default function MyTasks() {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      // Load all tasks (with different statuses)
-      const [open, inProgress, completed] = await Promise.all([
-        api.getTasks({ status: 'open' }),
-        api.getTasks({ status: 'in_progress' }),
-        api.getTasks({ status: 'completed' }),
-      ]);
-
-      const allTasks = [...open.tasks, ...inProgress.tasks, ...completed.tasks];
-
-      // Posted: tasks I created
-      setPostedTasks(allTasks.filter(t => t.isOwner));
-
-      // Accepted: tasks where I have an accepted/completed application
-      // We need to check each task individually
-      const myAccepted = [];
-      for (const t of allTasks) {
-        if (!t.isOwner) {
-          try {
-            const detail = await api.getTask(t.id);
-            if (detail.task.myApplication && ['accepted', 'completed'].includes(detail.task.myApplication.status)) {
-              myAccepted.push(detail.task);
-            }
-          } catch {
-            // skip
-          }
-        }
-      }
-      setAcceptedTasks(myAccepted);
+      const data = await api.getMyTasks();
+      setPostedTasks(data.posted);
+      setAcceptedTasks(data.accepted);
     } catch (err) {
       console.error(err);
     }

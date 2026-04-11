@@ -39,6 +39,7 @@ export const api = {
     return request(`/tasks${qs ? `?${qs}` : ''}`);
   },
   getTask: (id) => request(`/tasks/${id}`),
+  getMyTasks: () => request('/tasks/mine'),
   createTask: (body) => request('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id, body) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteTask: (id) => request(`/tasks/${id}`, { method: 'DELETE' }),

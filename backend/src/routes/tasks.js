@@ -76,10 +76,60 @@ router.get('/', auth, async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch tasks' });
     }
 
-    const formatted = await Promise.all((tasks || []).map((t) => formatTask(t, req.user.id)));
+    const posterIds = [...new Set((tasks || []).map((t) => t.poster_id))];
+    const reviewMap = await buildReviewMap(posterIds);
+    const formatted = (tasks || []).map((t) => formatTaskSync(t, req.user.id, reviewMap));
     res.json({ tasks: formatted });
   } catch (err) {
     console.error('Tasks error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/tasks/mine — all tasks the user posted or was accepted for
+router.get('/mine', auth, async (req, res) => {
+  try {
+    // Tasks I posted
+    const { data: posted } = await supabase
+      .from('tasks')
+      .select('*, poster:users!poster_id(display_name, profile_photo)')
+      .eq('poster_id', req.user.id)
+      .in('status', ['open', 'in_progress', 'completed'])
+      .order('created_at', { ascending: false });
+
+    // Tasks I was accepted for
+    const { data: myApps } = await supabase
+      .from('task_applications')
+      .select('task_id, status')
+      .eq('tasker_id', req.user.id)
+      .in('status', ['accepted', 'completed']);
+
+    let accepted = [];
+    const acceptedTaskIds = (myApps || []).map((a) => a.task_id);
+    if (acceptedTaskIds.length > 0) {
+      const { data } = await supabase
+        .from('tasks')
+        .select('*, poster:users!poster_id(display_name, profile_photo)')
+        .in('id', acceptedTaskIds)
+        .order('created_at', { ascending: false });
+      accepted = data || [];
+    }
+
+    const allTasks = [...(posted || []), ...accepted];
+    const posterIds = [...new Set(allTasks.map((t) => t.poster_id))];
+    const reviewMap = await buildReviewMap(posterIds);
+
+    res.json({
+      posted: (posted || []).map((t) => formatTaskSync(t, req.user.id, reviewMap)),
+      accepted: accepted.map((t) => {
+        const formatted = formatTaskSync(t, req.user.id, reviewMap);
+        const app = myApps.find((a) => a.task_id === t.id);
+        formatted.myApplication = app ? { status: app.status } : null;
+        return formatted;
+      }),
+    });
+  } catch (err) {
+    console.error('My tasks error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -559,27 +609,32 @@ router.post('/:id/cancel-application', auth, async (req, res) => {
   }
 });
 
-async function formatTask(t, viewerId) {
-  const { data: reviewData } = await supabase
+// Batch-fetch review stats for a set of poster IDs in ONE query
+async function buildReviewMap(posterIds) {
+  if (!posterIds.length) return {};
+  const { data: allReviews } = await supabase
     .from('reviews')
-    .select('rating')
-    .eq('reviewee_id', t.poster_id);
+    .select('reviewee_id, rating')
+    .in('reviewee_id', posterIds);
 
-  let posterRating = null;
-  let posterReviewCount = 0;
-  if (reviewData && reviewData.length > 0) {
-    posterReviewCount = reviewData.length;
-    const sum = reviewData.reduce((acc, r) => acc + r.rating, 0);
-    posterRating = Math.round((sum / posterReviewCount) * 10) / 10;
+  const map = {};
+  for (const r of allReviews || []) {
+    if (!map[r.reviewee_id]) map[r.reviewee_id] = { sum: 0, count: 0 };
+    map[r.reviewee_id].sum += r.rating;
+    map[r.reviewee_id].count++;
   }
+  return map;
+}
 
+function formatTaskSync(t, viewerId, reviewMap) {
+  const stats = reviewMap[t.poster_id];
   return {
     id: t.id,
     posterId: t.poster_id,
     posterName: t.poster?.display_name,
     posterPhoto: t.poster?.profile_photo,
-    posterRating,
-    posterReviewCount,
+    posterRating: stats ? Math.round((stats.sum / stats.count) * 10) / 10 : null,
+    posterReviewCount: stats ? stats.count : 0,
     title: t.title,
     category: t.category,
     description: t.description,
@@ -596,6 +651,12 @@ async function formatTask(t, viewerId) {
     createdAt: t.created_at,
     isOwner: t.poster_id === viewerId,
   };
+}
+
+// Single-task async version (used by detail/create/update endpoints)
+async function formatTask(t, viewerId) {
+  const reviewMap = await buildReviewMap([t.poster_id]);
+  return formatTaskSync(t, viewerId, reviewMap);
 }
 
 module.exports = router;
