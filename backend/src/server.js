@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
-const { getDb } = require('./database');
 
 const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/tasks');
@@ -22,7 +21,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
@@ -60,14 +59,6 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server
-async function start() {
-  await getDb();
-  console.log('Database initialized');
-
-  app.listen(PORT, () => {
-    console.log(`CampusGig API running on port ${PORT}`);
-  });
-}
-
-start().catch(console.error);
+app.listen(PORT, () => {
+  console.log(`CampusGig API running on port ${PORT}`);
+});

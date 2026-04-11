@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { get, run } = require('../database');
+const supabase = require('../database');
 const { generateId, isEduEmail, getUniversityFromEmail, sanitize } = require('../utils/helpers');
 const authMiddleware = require('../middleware/auth');
 
@@ -24,7 +24,12 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const existing = get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
+    const { data: existing } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
     if (existing) {
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
@@ -34,22 +39,34 @@ router.post('/signup', async (req, res) => {
     const university = getUniversityFromEmail(email);
     const verificationToken = generateId();
 
-    run(
-      `INSERT INTO users (id, email, password_hash, display_name, university, verification_token)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, email.toLowerCase(), passwordHash, sanitize(displayName), university, verificationToken]
-    );
+    const { error: insertErr } = await supabase
+      .from('users')
+      .insert({
+        id,
+        email: email.toLowerCase(),
+        password_hash: passwordHash,
+        display_name: sanitize(displayName),
+        university,
+        verification_token: verificationToken,
+        email_verified: true,
+      });
 
-    // In production, send an actual verification email.
-    // For dev, we auto-verify.
-    run('UPDATE users SET email_verified = 1 WHERE id = ?', [id]);
+    if (insertErr) {
+      console.error('Signup insert error:', insertErr);
+      return res.status(500).json({ error: 'Failed to create account' });
+    }
 
     const token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '30d' });
-    const user = get('SELECT * FROM users WHERE id = ?', [id]);
+
+    const { data: user } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
     res.status(201).json({
       token,
-      user: formatUser(user),
+      user: await formatUser(user),
     });
   } catch (err) {
     console.error('Signup error:', err);
@@ -66,7 +83,12 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
+    const { data: user } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -84,7 +106,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: formatUser(user),
+      user: await formatUser(user),
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -93,81 +115,99 @@ router.post('/login', async (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', authMiddleware, (req, res) => {
-  const user = get('SELECT * FROM users WHERE id = ?', [req.user.id]);
-  res.json({ user: formatUser(user) });
+router.get('/me', authMiddleware, async (req, res) => {
+  const { data: user } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', req.user.id)
+    .maybeSingle();
+  res.json({ user: await formatUser(user) });
 });
 
 // PUT /api/auth/profile
-router.put('/profile', authMiddleware, (req, res) => {
+router.put('/profile', authMiddleware, async (req, res) => {
   const { displayName, bio, paymentHandle, profilePhoto } = req.body;
 
-  const updates = [];
-  const params = [];
+  const updates = {};
 
-  if (displayName !== undefined) {
-    updates.push('display_name = ?');
-    params.push(sanitize(displayName));
-  }
-  if (bio !== undefined) {
-    updates.push('bio = ?');
-    params.push(sanitize(bio));
-  }
-  if (paymentHandle !== undefined) {
-    updates.push('payment_handle = ?');
-    params.push(sanitize(paymentHandle));
-  }
-  if (profilePhoto !== undefined) {
-    updates.push('profile_photo = ?');
-    params.push(profilePhoto);
-  }
+  if (displayName !== undefined) updates.display_name = sanitize(displayName);
+  if (bio !== undefined) updates.bio = sanitize(bio);
+  if (paymentHandle !== undefined) updates.payment_handle = sanitize(paymentHandle);
+  if (profilePhoto !== undefined) updates.profile_photo = profilePhoto;
 
-  if (updates.length === 0) {
+  if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'No fields to update' });
   }
 
-  updates.push("updated_at = datetime('now')");
-  params.push(req.user.id);
+  updates.updated_at = new Date().toISOString();
 
-  run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+  await supabase.from('users').update(updates).eq('id', req.user.id);
 
-  const user = get('SELECT * FROM users WHERE id = ?', [req.user.id]);
-  res.json({ user: formatUser(user) });
+  const { data: user } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', req.user.id)
+    .maybeSingle();
+
+  res.json({ user: await formatUser(user) });
 });
 
 // GET /api/auth/verify/:token
-router.get('/verify/:token', (req, res) => {
-  const user = get('SELECT * FROM users WHERE verification_token = ?', [req.params.token]);
+router.get('/verify/:token', async (req, res) => {
+  const { data: user } = await supabase
+    .from('users')
+    .select('*')
+    .eq('verification_token', req.params.token)
+    .maybeSingle();
+
   if (!user) {
     return res.status(400).json({ error: 'Invalid verification token' });
   }
 
-  run('UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?', [user.id]);
+  await supabase
+    .from('users')
+    .update({ email_verified: true, verification_token: null })
+    .eq('id', user.id);
+
   res.json({ message: 'Email verified successfully' });
 });
 
-function formatUser(user) {
+async function formatUser(user) {
   if (!user) return null;
 
-  // Get stats
-  const tasksCompleted = get(
-    `SELECT COUNT(*) as count FROM task_applications
-     WHERE tasker_id = ? AND status = 'completed'`,
-    [user.id]
-  );
-  const tasksPosted = get(
-    `SELECT COUNT(*) as count FROM tasks WHERE poster_id = ?`,
-    [user.id]
-  );
-  const avgRating = get(
-    `SELECT AVG(rating) as avg, COUNT(*) as count FROM reviews WHERE reviewee_id = ?`,
-    [user.id]
-  );
-  const totalEarnings = get(
-    `SELECT COALESCE(SUM(t.offered_pay), 0) as total FROM task_applications ta
-     JOIN tasks t ON ta.task_id = t.id
-     WHERE ta.tasker_id = ? AND ta.status = 'completed'`,
-    [user.id]
+  const { count: tasksCompleted } = await supabase
+    .from('task_applications')
+    .select('*', { count: 'exact', head: true })
+    .eq('tasker_id', user.id)
+    .eq('status', 'completed');
+
+  const { count: tasksPosted } = await supabase
+    .from('tasks')
+    .select('*', { count: 'exact', head: true })
+    .eq('poster_id', user.id);
+
+  const { data: reviewData } = await supabase
+    .from('reviews')
+    .select('rating')
+    .eq('reviewee_id', user.id);
+
+  let avgRating = null;
+  let reviewCount = 0;
+  if (reviewData && reviewData.length > 0) {
+    reviewCount = reviewData.length;
+    const sum = reviewData.reduce((acc, r) => acc + r.rating, 0);
+    avgRating = Math.round((sum / reviewCount) * 10) / 10;
+  }
+
+  const { data: earningsData } = await supabase
+    .from('task_applications')
+    .select('tasks(offered_pay)')
+    .eq('tasker_id', user.id)
+    .eq('status', 'completed');
+
+  const totalEarnings = (earningsData || []).reduce(
+    (sum, ta) => sum + (ta.tasks?.offered_pay || 0),
+    0
   );
 
   return {
@@ -180,11 +220,11 @@ function formatUser(user) {
     university: user.university,
     emailVerified: !!user.email_verified,
     createdAt: user.created_at,
-    tasksCompleted: tasksCompleted?.count || 0,
-    tasksPosted: tasksPosted?.count || 0,
-    avgRating: avgRating?.avg ? Math.round(avgRating.avg * 10) / 10 : null,
-    reviewCount: avgRating?.count || 0,
-    totalEarnings: totalEarnings?.total || 0,
+    tasksCompleted: tasksCompleted || 0,
+    tasksPosted: tasksPosted || 0,
+    avgRating,
+    reviewCount,
+    totalEarnings,
     cancellationCount: user.cancellation_count,
   };
 }
