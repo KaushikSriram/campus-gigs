@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, ClipboardCheck, Flag, Ban } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
-import { getInitials } from '../utils/helpers';
+import { formatMonthYear, getInitials } from '../utils/helpers';
 
 export default function UserProfile() {
   const { id } = useParams();
@@ -74,7 +74,7 @@ export default function UserProfile() {
           <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>{profileUser.university}</p>
           {profileUser.bio && <p style={{ color: 'var(--gray-600)', fontSize: 14, marginTop: 6 }}>{profileUser.bio}</p>}
           <p style={{ color: 'var(--gray-400)', fontSize: 12, marginTop: 4 }}>
-            Member since {new Date(profileUser.createdAt + 'Z').toLocaleDateString([], { month: 'long', year: 'numeric' })}
+            Member since {formatMonthYear(profileUser.createdAt)}
           </p>
         </div>
 

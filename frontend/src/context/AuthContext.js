@@ -26,15 +26,15 @@ export function AuthProvider({ children }) {
     loadUser();
   }, [loadUser]);
 
-  const login = async (email, password) => {
-    const data = await api.login({ email, password });
-    localStorage.setItem('campusgig_token', data.token);
-    setUser(data.user);
-    return data;
+  // Step 1: send a 6-digit code to the user's .edu email
+  // Returns { isNew: bool } so the UI knows to collect a display name
+  const sendCode = async (email) => {
+    return await api.sendCode({ email });
   };
 
-  const signup = async (email, password, displayName) => {
-    const data = await api.signup({ email, password, displayName });
+  // Step 2: verify the code (+ displayName if new) and sign in
+  const verifyCode = async (email, code, displayName) => {
+    const data = await api.verifyCode({ email, code, displayName });
     localStorage.setItem('campusgig_token', data.token);
     setUser(data.user);
     return data;
@@ -55,7 +55,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, sendCode, verifyCode, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

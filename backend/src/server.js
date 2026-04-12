@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 
+const { verifyEmailTransport } = require('./services/email');
 const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/tasks');
 const messageRoutes = require('./routes/messages');
@@ -61,4 +62,5 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`CampusGig API running on port ${PORT}`);
+  verifyEmailTransport();
 });

@@ -1,0 +1,8 @@
+{
+  "name": "campusgig-workspace",
+  "private": true,
+  "scripts": {
+    "seed": "npm --prefix backend run seed",
+    "seed:force": "npm --prefix backend run seed:force"
+  }
+}

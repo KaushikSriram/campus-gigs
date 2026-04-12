@@ -7,10 +7,44 @@ const { createNotification } = require('../services/notifications');
 
 const router = express.Router();
 
+// ================================================
+// Helpers
+// ================================================
+
+// Count distinct interested users per task_id.
+// Returns an object { [taskId]: number }.
+async function buildInterestCountMap(taskIds) {
+  if (!taskIds.length) return {};
+  const { data: apps } = await supabase
+    .from('task_applications')
+    .select('task_id, tasker_id')
+    .in('task_id', taskIds);
+
+  const map = {};
+  const seen = new Set();
+  for (const a of apps || []) {
+    const key = `${a.task_id}:${a.tasker_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    map[a.task_id] = (map[a.task_id] || 0) + 1;
+  }
+  return map;
+}
+
+function isExpired(task) {
+  if (!task?.date_time) return false;
+  if (task.date_type === 'asap') return false;
+  const t = new Date(task.date_time).getTime();
+  if (isNaN(t)) return false;
+  return t < Date.now();
+}
+
+// ================================================
 // GET /api/tasks — campus task feed
+// ================================================
 router.get('/', auth, async (req, res) => {
   try {
-    const { category, minPay, maxPay, date, sort, search, status } = req.query;
+    const { category, minPay, maxPay, date, sort, search, status, includeExpired } = req.query;
 
     const { data: blockedData } = await supabase
       .from('blocks')
@@ -27,6 +61,7 @@ router.get('/', auth, async (req, res) => {
       query = query.not('poster_id', 'in', `(${blockedIds.join(',')})`);
     }
 
+    // Status filter: default to "open" only for the public feed.
     if (status) {
       query = query.eq('status', status);
     } else {
@@ -36,19 +71,11 @@ router.get('/', auth, async (req, res) => {
     if (category && CATEGORIES.includes(category)) {
       query = query.eq('category', category);
     }
-
-    if (minPay) {
-      query = query.gte('offered_pay', parseFloat(minPay));
-    }
-
-    if (maxPay) {
-      query = query.lte('offered_pay', parseFloat(maxPay));
-    }
-
+    if (minPay) query = query.gte('offered_pay', parseFloat(minPay));
+    if (maxPay) query = query.lte('offered_pay', parseFloat(maxPay));
     if (date) {
       query = query.gte('date_time', `${date}T00:00:00`).lte('date_time', `${date}T23:59:59`);
     }
-
     if (search) {
       query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
     }
@@ -67,18 +94,28 @@ router.get('/', auth, async (req, res) => {
         query = query.order('created_at', { ascending: false });
     }
 
-    query = query.limit(50);
+    query = query.limit(80);
 
-    const { data: tasks, error } = await query;
-
+    let { data: tasks, error } = await query;
     if (error) {
       console.error('Tasks fetch error:', error);
       return res.status(500).json({ error: 'Failed to fetch tasks' });
     }
 
+    // Filter out expired tasks from the public feed unless explicitly requested.
+    if (!includeExpired) {
+      tasks = (tasks || []).filter((t) => !isExpired(t));
+    }
+
     const posterIds = [...new Set((tasks || []).map((t) => t.poster_id))];
-    const reviewMap = await buildReviewMap(posterIds);
-    const formatted = (tasks || []).map((t) => formatTaskSync(t, req.user.id, reviewMap));
+    const taskIds = (tasks || []).map((t) => t.id);
+    const [reviewMap, interestMap] = await Promise.all([
+      buildReviewMap(posterIds),
+      buildInterestCountMap(taskIds),
+    ]);
+    const formatted = (tasks || []).map((t) =>
+      formatTaskSync(t, req.user.id, reviewMap, interestMap)
+    );
     res.json({ tasks: formatted });
   } catch (err) {
     console.error('Tasks error:', err);
@@ -86,47 +123,50 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// GET /api/tasks/mine — all tasks the user posted or was accepted for
+// ================================================
+// GET /api/tasks/mine — all tasks the user posted or showed interest in
+// ================================================
 router.get('/mine', auth, async (req, res) => {
   try {
-    // Tasks I posted
+    // Tasks I posted (any status)
     const { data: posted } = await supabase
       .from('tasks')
       .select('*, poster:users!poster_id(display_name, profile_photo)')
       .eq('poster_id', req.user.id)
-      .in('status', ['open', 'in_progress', 'completed'])
       .order('created_at', { ascending: false });
 
-    // Tasks I was accepted for
-    const { data: myApps } = await supabase
+    // Tasks I've expressed interest in (any status)
+    const { data: myInterests } = await supabase
       .from('task_applications')
-      .select('task_id, status')
-      .eq('tasker_id', req.user.id)
-      .in('status', ['accepted', 'completed']);
+      .select('task_id')
+      .eq('tasker_id', req.user.id);
 
-    let accepted = [];
-    const acceptedTaskIds = (myApps || []).map((a) => a.task_id);
-    if (acceptedTaskIds.length > 0) {
+    let interested = [];
+    const interestedTaskIds = [...new Set((myInterests || []).map((a) => a.task_id))];
+    if (interestedTaskIds.length > 0) {
       const { data } = await supabase
         .from('tasks')
         .select('*, poster:users!poster_id(display_name, profile_photo)')
-        .in('id', acceptedTaskIds)
+        .in('id', interestedTaskIds)
         .order('created_at', { ascending: false });
-      accepted = data || [];
+      interested = data || [];
     }
 
-    const allTasks = [...(posted || []), ...accepted];
+    const allTasks = [...(posted || []), ...interested];
     const posterIds = [...new Set(allTasks.map((t) => t.poster_id))];
-    const reviewMap = await buildReviewMap(posterIds);
+    const taskIds = allTasks.map((t) => t.id);
+    const [reviewMap, interestMap] = await Promise.all([
+      buildReviewMap(posterIds),
+      buildInterestCountMap(taskIds),
+    ]);
 
     res.json({
-      posted: (posted || []).map((t) => formatTaskSync(t, req.user.id, reviewMap)),
-      accepted: accepted.map((t) => {
-        const formatted = formatTaskSync(t, req.user.id, reviewMap);
-        const app = myApps.find((a) => a.task_id === t.id);
-        formatted.myApplication = app ? { status: app.status } : null;
-        return formatted;
-      }),
+      posted: (posted || []).map((t) =>
+        formatTaskSync(t, req.user.id, reviewMap, interestMap)
+      ),
+      interested: interested.map((t) =>
+        formatTaskSync(t, req.user.id, reviewMap, interestMap)
+      ),
     });
   } catch (err) {
     console.error('My tasks error:', err);
@@ -134,7 +174,9 @@ router.get('/mine', auth, async (req, res) => {
   }
 });
 
+// ================================================
 // GET /api/tasks/:id — single task detail
+// ================================================
 router.get('/:id', auth, async (req, res) => {
   try {
     const { data: task, error } = await supabase
@@ -149,23 +191,32 @@ router.get('/:id', auth, async (req, res) => {
 
     const result = await formatTask(task, req.user.id);
 
+    // If the viewer is the poster, list all interested users.
     if (task.poster_id === req.user.id) {
-      const { data: applicants } = await supabase
+      const { data: interests } = await supabase
         .from('task_applications')
         .select('*')
         .eq('task_id', task.id)
         .order('created_at', { ascending: true });
 
-      result.applicants = await Promise.all(
-        (applicants || []).map(async (a) => {
+      // Dedupe by tasker_id (in case of legacy duplicates)
+      const seen = new Set();
+      const uniq = [];
+      for (const row of interests || []) {
+        if (seen.has(row.tasker_id)) continue;
+        seen.add(row.tasker_id);
+        uniq.push(row);
+      }
+
+      result.interestedUsers = await Promise.all(
+        uniq.map(async (a) => {
           const { data: u } = await supabase
             .from('users')
             .select('*')
             .eq('id', a.tasker_id)
             .maybeSingle();
           return {
-            applicationId: a.id,
-            status: a.status,
+            interestId: a.id,
             createdAt: a.created_at,
             user: await formatUser(u),
           };
@@ -173,14 +224,31 @@ router.get('/:id', auth, async (req, res) => {
       );
     }
 
-    const { data: myApplication } = await supabase
+    // Has the viewer expressed interest?
+    const { data: myInterest } = await supabase
       .from('task_applications')
-      .select('id, status')
+      .select('id')
       .eq('task_id', task.id)
       .eq('tasker_id', req.user.id)
       .maybeSingle();
 
-    result.myApplication = myApplication || null;
+    result.viewerIsInterested = !!myInterest;
+
+    // Populate assigned tasker info if set
+    if (task.assigned_tasker_id) {
+      const { data: assigned } = await supabase
+        .from('users')
+        .select('id, display_name, profile_photo')
+        .eq('id', task.assigned_tasker_id)
+        .maybeSingle();
+      if (assigned) {
+        result.assignedTasker = {
+          id: assigned.id,
+          displayName: assigned.display_name,
+          profilePhoto: assigned.profile_photo,
+        };
+      }
+    }
 
     res.json({ task: result });
   } catch (err) {
@@ -189,7 +257,9 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// ================================================
 // POST /api/tasks — create a new task
+// ================================================
 router.post('/', auth, async (req, res) => {
   try {
     const {
@@ -258,7 +328,9 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// PUT /api/tasks/:id — update a task
+// ================================================
+// PUT /api/tasks/:id — update a task (poster, while still open)
+// ================================================
 router.put('/:id', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
@@ -284,7 +356,6 @@ router.put('/:id', auth, async (req, res) => {
     } = req.body;
 
     const updates = {};
-
     if (title !== undefined) {
       const check = moderateContent(title);
       if (!check.ok) return res.status(400).json({ error: check.reason });
@@ -326,7 +397,9 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
+// ================================================
 // DELETE /api/tasks/:id — cancel a task
+// ================================================
 router.delete('/:id', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
@@ -338,15 +411,15 @@ router.delete('/:id', auth, async (req, res) => {
     if (!task) return res.status(404).json({ error: 'Task not found' });
     if (task.poster_id !== req.user.id) return res.status(403).json({ error: 'Not your task' });
 
-    const { data: accepted } = await supabase
+    // Notify anyone who had expressed interest
+    const { data: interested } = await supabase
       .from('task_applications')
       .select('tasker_id')
-      .eq('task_id', task.id)
-      .eq('status', 'accepted');
+      .eq('task_id', task.id);
 
-    for (const app of accepted || []) {
+    for (const row of interested || []) {
       await createNotification(
-        app.tasker_id,
+        row.tasker_id,
         'task_cancelled',
         'Task Cancelled',
         `The task "${task.title}" has been cancelled by the poster.`,
@@ -371,8 +444,12 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /api/tasks/:id/apply
-router.post('/:id/apply', auth, async (req, res) => {
+// ================================================
+// POST /api/tasks/:id/interest — express interest in a task
+// (called automatically when a non-poster first messages the poster,
+//  but also callable directly for an explicit "I'm interested" click)
+// ================================================
+router.post('/:id/interest', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
       .from('tasks')
@@ -381,41 +458,48 @@ router.post('/:id/apply', auth, async (req, res) => {
       .maybeSingle();
 
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.status !== 'open') return res.status(400).json({ error: 'Task is no longer open' });
     if (task.poster_id === req.user.id)
-      return res.status(400).json({ error: 'Cannot apply to your own task' });
+      return res.status(400).json({ error: 'You posted this task' });
+    if (task.status === 'cancelled' || task.status === 'completed')
+      return res.status(400).json({ error: 'This task is no longer accepting interest' });
 
-    const { data: existing } = await supabase
-      .from('task_applications')
+    const result = await upsertInterest(task, req.user);
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('Task interest error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ================================================
+// POST /api/tasks/:id/withdraw — withdraw interest
+// ================================================
+router.post('/:id/withdraw', auth, async (req, res) => {
+  try {
+    const { data: task } = await supabase
+      .from('tasks')
       .select('id')
-      .eq('task_id', task.id)
-      .eq('tasker_id', req.user.id)
+      .eq('id', req.params.id)
       .maybeSingle();
+    if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    if (existing) return res.status(409).json({ error: 'Already applied to this task' });
-
-    const id = generateId();
     await supabase
       .from('task_applications')
-      .insert({ id, task_id: task.id, tasker_id: req.user.id });
+      .delete()
+      .eq('task_id', task.id)
+      .eq('tasker_id', req.user.id);
 
-    await createNotification(
-      task.poster_id,
-      'new_applicant',
-      'New Applicant',
-      `${req.user.display_name} wants to do your task "${task.title}"`,
-      { taskId: task.id, applicationId: id, applicantId: req.user.id }
-    );
-
-    res.status(201).json({ message: 'Application submitted', applicationId: id });
+    res.json({ message: 'Interest withdrawn' });
   } catch (err) {
-    console.error('Task apply error:', err);
+    console.error('Task withdraw error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST /api/tasks/:id/accept/:applicationId
-router.post('/:id/accept/:applicationId', auth, async (req, res) => {
+// ================================================
+// POST /api/tasks/:id/fill — mark task as filled (poster only)
+// ================================================
+router.post('/:id/fill', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
       .from('tasks')
@@ -424,53 +508,27 @@ router.post('/:id/accept/:applicationId', auth, async (req, res) => {
       .maybeSingle();
 
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.poster_id !== req.user.id) return res.status(403).json({ error: 'Not your task' });
-
-    const { data: application } = await supabase
-      .from('task_applications')
-      .select('*')
-      .eq('id', req.params.applicationId)
-      .eq('task_id', task.id)
-      .maybeSingle();
-
-    if (!application) return res.status(404).json({ error: 'Application not found' });
-    if (application.status !== 'pending')
-      return res.status(400).json({ error: 'Application already processed' });
-
-    if (task.helpers_accepted >= task.helpers_needed) {
-      return res.status(400).json({ error: 'All helper slots are filled' });
-    }
+    if (task.poster_id !== req.user.id)
+      return res.status(403).json({ error: 'Only the poster can mark as filled' });
+    if (task.status !== 'open')
+      return res.status(400).json({ error: 'Task is not open' });
 
     await supabase
-      .from('task_applications')
-      .update({ status: 'accepted' })
-      .eq('id', application.id);
+      .from('tasks')
+      .update({ status: 'filled', updated_at: new Date().toISOString() })
+      .eq('id', task.id);
 
-    const newAccepted = (task.helpers_accepted || 0) + 1;
-    const taskUpdates = { helpers_accepted: newAccepted };
-    if (newAccepted >= task.helpers_needed) {
-      taskUpdates.status = 'in_progress';
-      taskUpdates.updated_at = new Date().toISOString();
-    }
-    await supabase.from('tasks').update(taskUpdates).eq('id', task.id);
-
-    await createNotification(
-      application.tasker_id,
-      'application_accepted',
-      'Application Accepted!',
-      `Your application for "${task.title}" was accepted! Message them to coordinate.`,
-      { taskId: task.id }
-    );
-
-    res.json({ message: 'Applicant accepted' });
+    res.json({ message: 'Task marked as filled' });
   } catch (err) {
-    console.error('Task accept error:', err);
+    console.error('Task fill error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST /api/tasks/:id/decline/:applicationId
-router.post('/:id/decline/:applicationId', auth, async (req, res) => {
+// ================================================
+// POST /api/tasks/:id/reopen — reopen a filled task
+// ================================================
+router.post('/:id/reopen', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
       .from('tasks')
@@ -479,38 +537,29 @@ router.post('/:id/decline/:applicationId', auth, async (req, res) => {
       .maybeSingle();
 
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.poster_id !== req.user.id) return res.status(403).json({ error: 'Not your task' });
-
-    const { data: application } = await supabase
-      .from('task_applications')
-      .select('*')
-      .eq('id', req.params.applicationId)
-      .eq('task_id', task.id)
-      .maybeSingle();
-
-    if (!application) return res.status(404).json({ error: 'Application not found' });
+    if (task.poster_id !== req.user.id)
+      return res.status(403).json({ error: 'Only the poster can reopen' });
+    if (task.status !== 'filled')
+      return res.status(400).json({ error: 'Only filled tasks can be reopened' });
 
     await supabase
-      .from('task_applications')
-      .update({ status: 'declined' })
-      .eq('id', application.id);
+      .from('tasks')
+      .update({ status: 'open', updated_at: new Date().toISOString() })
+      .eq('id', task.id);
 
-    await createNotification(
-      application.tasker_id,
-      'application_declined',
-      'Application Update',
-      `Your application for "${task.title}" was not selected.`,
-      { taskId: task.id }
-    );
-
-    res.json({ message: 'Applicant declined' });
+    res.json({ message: 'Task reopened' });
   } catch (err) {
-    console.error('Task decline error:', err);
+    console.error('Task reopen error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST /api/tasks/:id/complete
+// ================================================
+// POST /api/tasks/:id/complete — mark complete with optional assignee
+// Body: { assignedTaskerId?: string | null }
+//   - assignedTaskerId = userId  -> credit that user
+//   - assignedTaskerId = null    -> "I don't remember who did it"
+// ================================================
 router.post('/:id/complete', auth, async (req, res) => {
   try {
     const { data: task } = await supabase
@@ -524,27 +573,44 @@ router.post('/:id/complete', auth, async (req, res) => {
       return res.status(403).json({ error: 'Only the poster can mark as complete' });
     if (task.status === 'completed')
       return res.status(400).json({ error: 'Task already completed' });
+    if (task.status === 'cancelled')
+      return res.status(400).json({ error: 'Task was cancelled' });
 
-    await supabase
-      .from('tasks')
-      .update({ status: 'completed', updated_at: new Date().toISOString() })
-      .eq('id', task.id);
+    let assignedTaskerId = req.body.assignedTaskerId ?? null;
 
-    await supabase
-      .from('task_applications')
-      .update({ status: 'completed' })
-      .eq('task_id', task.id)
-      .eq('status', 'accepted');
+    // If a tasker is assigned, validate they actually expressed interest
+    if (assignedTaskerId) {
+      const { data: interest } = await supabase
+        .from('task_applications')
+        .select('id')
+        .eq('task_id', task.id)
+        .eq('tasker_id', assignedTaskerId)
+        .maybeSingle();
+      if (!interest) {
+        return res.status(400).json({
+          error: 'That user never expressed interest in this task',
+        });
+      }
+    }
 
-    const { data: accepted } = await supabase
-      .from('task_applications')
-      .select('tasker_id')
-      .eq('task_id', task.id)
-      .eq('status', 'completed');
+    const updates = {
+      status: 'completed',
+      updated_at: new Date().toISOString(),
+      assigned_tasker_id: assignedTaskerId,
+    };
 
-    for (const app of accepted || []) {
+    await supabase.from('tasks').update(updates).eq('id', task.id);
+
+    // Mark the assigned tasker's interest row as completed so profile stats work.
+    if (assignedTaskerId) {
+      await supabase
+        .from('task_applications')
+        .update({ status: 'completed' })
+        .eq('task_id', task.id)
+        .eq('tasker_id', assignedTaskerId);
+
       await createNotification(
-        app.tasker_id,
+        assignedTaskerId,
         'task_completed',
         'Task Completed!',
         `"${task.title}" has been marked as complete. Rate your experience!`,
@@ -559,57 +625,45 @@ router.post('/:id/complete', auth, async (req, res) => {
   }
 });
 
-// POST /api/tasks/:id/cancel-application
-router.post('/:id/cancel-application', auth, async (req, res) => {
-  try {
-    const { data: task } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('id', req.params.id)
-      .maybeSingle();
+// ================================================
+// Shared interest upsert (used by routes and by messages.js)
+// ================================================
+async function upsertInterest(task, user) {
+  const { data: existing } = await supabase
+    .from('task_applications')
+    .select('id')
+    .eq('task_id', task.id)
+    .eq('tasker_id', user.id)
+    .maybeSingle();
 
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    const { data: application } = await supabase
-      .from('task_applications')
-      .select('*')
-      .eq('task_id', task.id)
-      .eq('tasker_id', req.user.id)
-      .maybeSingle();
-
-    if (!application) return res.status(404).json({ error: 'No application found' });
-
-    if (application.status === 'accepted') {
-      const newAccepted = Math.max(0, (task.helpers_accepted || 0) - 1);
-      const taskUpdates = { helpers_accepted: newAccepted };
-      if (task.status === 'in_progress') {
-        taskUpdates.status = 'open';
-      }
-      await supabase.from('tasks').update(taskUpdates).eq('id', task.id);
-
-      await supabase
-        .from('users')
-        .update({ cancellation_count: (req.user.cancellation_count || 0) + 1 })
-        .eq('id', req.user.id);
-
-      await createNotification(
-        task.poster_id,
-        'tasker_cancelled',
-        'Tasker Cancelled',
-        `${req.user.display_name} cancelled on "${task.title}". The slot is open again.`,
-        { taskId: task.id }
-      );
-    }
-
-    await supabase.from('task_applications').delete().eq('id', application.id);
-    res.json({ message: 'Application cancelled' });
-  } catch (err) {
-    console.error('Task cancel-application error:', err);
-    res.status(500).json({ error: 'Server error' });
+  if (existing) {
+    return { interestId: existing.id, created: false };
   }
-});
 
-// Batch-fetch review stats for a set of poster IDs in ONE query
+  const id = generateId();
+  const { error: insertErr } = await supabase
+    .from('task_applications')
+    .insert({ id, task_id: task.id, tasker_id: user.id, status: 'pending' });
+
+  if (insertErr) {
+    console.error('Interest insert error:', insertErr);
+    throw insertErr;
+  }
+
+  await createNotification(
+    task.poster_id,
+    'new_interest',
+    'Someone is interested',
+    `${user.display_name} is interested in "${task.title}"`,
+    { taskId: task.id, interestId: id, taskerId: user.id }
+  );
+
+  return { interestId: id, created: true };
+}
+
+// ================================================
+// Review helpers
+// ================================================
 async function buildReviewMap(posterIds) {
   if (!posterIds.length) return {};
   const { data: allReviews } = await supabase
@@ -626,7 +680,7 @@ async function buildReviewMap(posterIds) {
   return map;
 }
 
-function formatTaskSync(t, viewerId, reviewMap) {
+function formatTaskSync(t, viewerId, reviewMap, interestMap = {}) {
   const stats = reviewMap[t.poster_id];
   return {
     id: t.id,
@@ -644,19 +698,23 @@ function formatTaskSync(t, viewerId, reviewMap) {
     estimatedDuration: t.estimated_duration,
     offeredPay: t.offered_pay,
     helpersNeeded: t.helpers_needed,
-    helpersAccepted: t.helpers_accepted,
     photos: typeof t.photos === 'string' ? JSON.parse(t.photos || '[]') : t.photos || [],
     status: t.status,
     university: t.university,
     createdAt: t.created_at,
     isOwner: t.poster_id === viewerId,
+    interestedCount: interestMap[t.id] || 0,
+    assignedTaskerId: t.assigned_tasker_id || null,
   };
 }
 
-// Single-task async version (used by detail/create/update endpoints)
 async function formatTask(t, viewerId) {
-  const reviewMap = await buildReviewMap([t.poster_id]);
-  return formatTaskSync(t, viewerId, reviewMap);
+  const [reviewMap, interestMap] = await Promise.all([
+    buildReviewMap([t.poster_id]),
+    buildInterestCountMap([t.id]),
+  ]);
+  return formatTaskSync(t, viewerId, reviewMap, interestMap);
 }
 
 module.exports = router;
+module.exports.upsertInterest = upsertInterest;

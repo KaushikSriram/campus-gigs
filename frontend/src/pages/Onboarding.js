@@ -93,12 +93,12 @@ export default function Onboarding() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <button className="btn btn-primary btn-full" onClick={() => navigate('/signup')} style={{ fontSize: 16, padding: 16 }}>
-                Get Started with your .edu email
+              <button className="btn btn-primary btn-full" onClick={() => navigate('/login')} style={{ fontSize: 16, padding: 16 }}>
+                Continue with your .edu email
               </button>
-              <button className="btn btn-secondary btn-full" onClick={() => navigate('/login')}>
-                Already have an account? Log in
-              </button>
+              <p style={{ textAlign: 'center', color: 'var(--gray-500)', fontSize: 13, marginTop: 4 }}>
+                No password needed — we'll email you a code.
+              </p>
             </div>
           )}
         </div>

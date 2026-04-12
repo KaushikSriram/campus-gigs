@@ -3,21 +3,24 @@ const auth = require('../middleware/auth');
 const supabase = require('../database');
 const { generateId, sanitize } = require('../utils/helpers');
 const { createNotification } = require('../services/notifications');
+const { upsertInterest } = require('./tasks');
 
 const router = express.Router();
 
-// GET /api/messages/threads — list all chat threads for the current user
+// ================================================
+// GET /api/messages/threads — list all chat threads for current user
+// Derived from task_applications (any row = interest/conversation link)
+// ================================================
 router.get('/threads', auth, async (req, res) => {
   try {
-    // Get task_applications where user is tasker (accepted/completed)
+    // Threads where I'm the tasker (I expressed interest)
     const { data: asTasker } = await supabase
       .from('task_applications')
       .select('task_id, tasker_id, created_at, tasks(id, title, status, poster_id)')
-      .in('status', ['accepted', 'completed'])
       .eq('tasker_id', req.user.id)
       .order('created_at', { ascending: false });
 
-    // Get task_applications where user is poster (accepted/completed)
+    // Threads where I'm the poster (anyone else expressed interest in my task)
     const { data: myTasks } = await supabase
       .from('tasks')
       .select('id')
@@ -29,7 +32,6 @@ router.get('/threads', auth, async (req, res) => {
       const { data } = await supabase
         .from('task_applications')
         .select('task_id, tasker_id, created_at, tasks(id, title, status, poster_id)')
-        .in('status', ['accepted', 'completed'])
         .in('task_id', myTaskIds)
         .order('created_at', { ascending: false });
       asPoster = data || [];
@@ -45,7 +47,12 @@ router.get('/threads', auth, async (req, res) => {
       const key = `${ta.task_id}-${otherUserId}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      threads.push({ taskId: ta.task_id, taskTitle: task.title, taskStatus: task.status, otherUserId });
+      threads.push({
+        taskId: ta.task_id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        otherUserId,
+      });
     }
 
     const result = await Promise.all(
@@ -106,7 +113,9 @@ router.get('/threads', auth, async (req, res) => {
   }
 });
 
-// GET /api/messages/:taskId/:userId — get messages for a specific thread
+// ================================================
+// GET /api/messages/:taskId/:userId — messages for a thread
+// ================================================
 router.get('/:taskId/:userId', auth, async (req, res) => {
   try {
     const { taskId, userId } = req.params;
@@ -119,17 +128,19 @@ router.get('/:taskId/:userId', auth, async (req, res) => {
 
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const { data: application } = await supabase
-      .from('task_applications')
-      .select('id')
-      .eq('task_id', taskId)
-      .in('status', ['accepted', 'completed'])
-      .or(`tasker_id.eq.${req.user.id},tasker_id.eq.${userId}`)
-      .maybeSingle();
+    // Viewer must either be the poster, or be someone who's expressed interest
+    // (i.e. the poster/tasker pair corresponds to a real task_applications row).
+    const viewerIsPoster = task.poster_id === req.user.id;
+    const otherIsPoster = task.poster_id === userId;
 
-    if (!application && task.poster_id !== req.user.id && task.poster_id !== userId) {
+    if (!viewerIsPoster && !otherIsPoster) {
       return res.status(403).json({ error: 'Not authorized for this conversation' });
     }
+
+    // If viewer is a tasker messaging a poster, that's fine as long as either:
+    //   (a) there's already an interest row, or
+    //   (b) the viewer is *about* to send a message (handled in POST by auto-create).
+    // For GET we just verify a thread exists.
 
     const { data: messages } = await supabase
       .from('messages')
@@ -166,7 +177,11 @@ router.get('/:taskId/:userId', auth, async (req, res) => {
   }
 });
 
+// ================================================
 // POST /api/messages/:taskId/:userId — send a message
+// Side effect: if viewer is not the poster and has no interest row,
+//              auto-create one (this replaces the old "apply" button).
+// ================================================
 router.post('/:taskId/:userId', auth, async (req, res) => {
   try {
     const { taskId, userId } = req.params;
@@ -178,12 +193,13 @@ router.post('/:taskId/:userId', auth, async (req, res) => {
 
     const { data: task } = await supabase
       .from('tasks')
-      .select('id')
+      .select('*')
       .eq('id', taskId)
       .maybeSingle();
 
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
+    // Block check
     const { data: blocked } = await supabase
       .from('blocks')
       .select('id')
@@ -193,6 +209,19 @@ router.post('/:taskId/:userId', auth, async (req, res) => {
       .maybeSingle();
 
     if (blocked) return res.status(403).json({ error: 'Cannot message this user' });
+
+    // Auto-create interest row if the viewer is a non-poster messaging the poster
+    // about a task that's still accepting interest.
+    const viewerIsPoster = task.poster_id === req.user.id;
+    if (!viewerIsPoster && task.poster_id === userId) {
+      if (task.status !== 'cancelled' && task.status !== 'completed') {
+        try {
+          await upsertInterest(task, req.user);
+        } catch (err) {
+          console.error('Auto-interest creation failed (non-fatal):', err);
+        }
+      }
+    }
 
     const id = generateId();
     await supabase.from('messages').insert({

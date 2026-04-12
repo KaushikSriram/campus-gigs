@@ -1,8 +1,30 @@
+// Safely parse a date string. Returns null if invalid/empty.
+export function parseDate(dateStr) {
+  if (!dateStr) return null;
+  // If the string has no timezone info, treat it as UTC to stay consistent
+  // across timezones (Supabase timestamps without 'Z' are effectively UTC).
+  const normalized =
+    typeof dateStr === 'string' &&
+    !dateStr.includes('Z') &&
+    !dateStr.match(/[+-]\d{2}:?\d{2}$/) &&
+    dateStr.includes('T')
+      ? dateStr + 'Z'
+      : dateStr;
+  const date = new Date(normalized);
+  return isNaN(date.getTime()) ? null : date;
+}
+
 export function timeAgo(dateStr) {
+  const date = parseDate(dateStr);
+  if (!date) return '';
+
   const now = new Date();
-  const date = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'));
   const seconds = Math.floor((now - date) / 1000);
 
+  if (seconds < 0) {
+    // Future date — fall through to absolute formatting
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
   if (seconds < 60) return 'just now';
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -14,8 +36,9 @@ export function timeAgo(dateStr) {
 }
 
 export function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
+  const date = parseDate(dateStr);
+  if (!date) return 'Flexible';
+
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -26,13 +49,50 @@ export function formatDate(dateStr) {
   if (date.toDateString() === tomorrow.toDateString()) {
     return `Tomorrow, ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
-    `, ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  return (
+    date.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+    `, ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+  );
+}
+
+export function formatMonthYear(dateStr, fallback = 'Recently') {
+  const date = parseDate(dateStr);
+  if (!date) return fallback;
+
+  return date.toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
 export function getInitials(name) {
   if (!name) return '?';
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+// A task is "expired" when its scheduled date is in the past but it's still open.
+export function isTaskExpired(task) {
+  if (!task) return false;
+  if (task.status !== 'open') return false;
+  if (task.dateType === 'asap') return false;
+  const date = parseDate(task.dateTime);
+  if (!date) return false;
+  return date.getTime() < Date.now();
+}
+
+// A task is "inactive" when it's filled, completed, cancelled, or expired.
+// Inactive tasks get a greyed-out visual treatment.
+export function isTaskInactive(task) {
+  if (!task) return false;
+  if (['filled', 'completed', 'cancelled'].includes(task.status)) return true;
+  return isTaskExpired(task);
+}
+
+// Human-readable label for the inactive state.
+export function taskInactiveLabel(task) {
+  if (!task) return '';
+  if (task.status === 'completed') return 'Completed';
+  if (task.status === 'filled') return 'Filled';
+  if (task.status === 'cancelled') return 'Cancelled';
+  if (isTaskExpired(task)) return 'Expired';
+  return '';
 }
 
 export const CATEGORY_COLORS = {

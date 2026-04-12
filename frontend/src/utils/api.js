@@ -27,9 +27,9 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
-  // Auth
-  signup: (body) => request('/auth/signup', { method: 'POST', body: JSON.stringify(body) }),
-  login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  // Auth - passwordless OTP
+  sendCode: (body) => request('/auth/send-code', { method: 'POST', body: JSON.stringify(body) }),
+  verifyCode: (body) => request('/auth/verify-code', { method: 'POST', body: JSON.stringify(body) }),
   getMe: () => request('/auth/me'),
   updateProfile: (body) => request('/auth/profile', { method: 'PUT', body: JSON.stringify(body) }),
 
@@ -43,11 +43,17 @@ export const api = {
   createTask: (body) => request('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id, body) => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteTask: (id) => request(`/tasks/${id}`, { method: 'DELETE' }),
-  applyToTask: (id) => request(`/tasks/${id}/apply`, { method: 'POST' }),
-  acceptApplicant: (taskId, appId) => request(`/tasks/${taskId}/accept/${appId}`, { method: 'POST' }),
-  declineApplicant: (taskId, appId) => request(`/tasks/${taskId}/decline/${appId}`, { method: 'POST' }),
-  completeTask: (id) => request(`/tasks/${id}/complete`, { method: 'POST' }),
-  cancelApplication: (id) => request(`/tasks/${id}/cancel-application`, { method: 'POST' }),
+
+  // Interest flow (replaces apply/accept/decline)
+  expressInterest: (id) => request(`/tasks/${id}/interest`, { method: 'POST' }),
+  withdrawInterest: (id) => request(`/tasks/${id}/withdraw`, { method: 'POST' }),
+  fillTask: (id) => request(`/tasks/${id}/fill`, { method: 'POST' }),
+  reopenTask: (id) => request(`/tasks/${id}/reopen`, { method: 'POST' }),
+  completeTask: (id, assignedTaskerId = null) =>
+    request(`/tasks/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ assignedTaskerId }),
+    }),
 
   // Messages
   getThreads: () => request('/messages/threads'),

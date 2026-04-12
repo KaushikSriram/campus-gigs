@@ -1,9 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MapPin, Clock, Calendar, DollarSign, Users, Star, MessageCircle, Flag, Ban, Trash2, CheckCircle } from 'lucide-react';
+import {
+  ArrowLeft, MapPin, Clock, Calendar, DollarSign, Users, Star,
+  MessageCircle, Flag, Ban, Trash2, CheckCircle, Lock, Unlock, HelpCircle,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
-import { formatDate, getInitials, CATEGORY_COLORS, timeAgo } from '../utils/helpers';
+import {
+  formatDate, getInitials, CATEGORY_COLORS, timeAgo,
+  isTaskExpired, isTaskInactive, taskInactiveLabel,
+} from '../utils/helpers';
 
 export default function TaskDetail() {
   const { id } = useParams();
@@ -15,6 +21,7 @@ export default function TaskDetail() {
   const [error, setError] = useState('');
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
 
   useEffect(() => {
     loadTask();
@@ -30,10 +37,22 @@ export default function TaskDetail() {
     setLoading(false);
   };
 
-  const handleApply = async () => {
+  const handleMessagePoster = async () => {
+    // Creates interest automatically on first send, but also pre-express
+    // so the interest shows in the count immediately if they navigate away.
+    try {
+      await api.expressInterest(id);
+    } catch (err) {
+      // ignore — will be auto-created on message send
+    }
+    navigate(`/chat/${task.id}/${task.posterId}`);
+  };
+
+  const handleWithdraw = async () => {
+    if (!window.confirm("Withdraw your interest? You won't be listed anymore.")) return;
     setActionLoading(true);
     try {
-      await api.applyToTask(id);
+      await api.withdrawInterest(id);
       await loadTask();
     } catch (err) {
       setError(err.message);
@@ -41,10 +60,11 @@ export default function TaskDetail() {
     setActionLoading(false);
   };
 
-  const handleAccept = async (appId) => {
+  const handleFill = async () => {
+    if (!window.confirm('Mark this task as filled? No new interest will be accepted.')) return;
     setActionLoading(true);
     try {
-      await api.acceptApplicant(id, appId);
+      await api.fillTask(id);
       await loadTask();
     } catch (err) {
       setError(err.message);
@@ -52,20 +72,22 @@ export default function TaskDetail() {
     setActionLoading(false);
   };
 
-  const handleDecline = async (appId) => {
+  const handleReopen = async () => {
+    setActionLoading(true);
     try {
-      await api.declineApplicant(id, appId);
+      await api.reopenTask(id);
       await loadTask();
     } catch (err) {
       setError(err.message);
     }
+    setActionLoading(false);
   };
 
-  const handleComplete = async () => {
-    if (!window.confirm('Mark this task as complete? This will finalize the task.')) return;
+  const handleCompleteWith = async (assignedTaskerId) => {
     setActionLoading(true);
     try {
-      await api.completeTask(id);
+      await api.completeTask(id, assignedTaskerId);
+      setShowCompleteModal(false);
       await loadTask();
     } catch (err) {
       setError(err.message);
@@ -78,16 +100,6 @@ export default function TaskDetail() {
     try {
       await api.deleteTask(id);
       navigate('/my-tasks');
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const handleCancelApplication = async () => {
-    if (!window.confirm('Cancel your application?')) return;
-    try {
-      await api.cancelApplication(id);
-      await loadTask();
     } catch (err) {
       setError(err.message);
     }
@@ -106,7 +118,7 @@ export default function TaskDetail() {
   };
 
   const handleBlock = async () => {
-    if (!window.confirm('Block this user? You won\'t see their tasks anymore.')) return;
+    if (!window.confirm("Block this user? You won't see their tasks anymore.")) return;
     try {
       await api.blockUser(task.posterId);
       navigate('/');
@@ -116,11 +128,19 @@ export default function TaskDetail() {
   };
 
   if (loading) return <div className="loader"><div className="spinner" /></div>;
-  if (!task) return <div className="page-content"><div className="error-banner">{error || 'Task not found'}</div></div>;
+  if (!task)
+    return (
+      <div className="page-content">
+        <div className="error-banner">{error || 'Task not found'}</div>
+      </div>
+    );
 
   const colors = CATEGORY_COLORS[task.category] || CATEGORY_COLORS['Other'];
   const isOwner = task.posterId === user.id;
-  const slotsOpen = task.helpersNeeded - task.helpersAccepted;
+  const inactive = isTaskInactive(task);
+  const expired = isTaskExpired(task);
+  const inactiveLabel = taskInactiveLabel(task);
+  const acceptingInterest = task.status === 'open' && !expired;
 
   return (
     <div className="page">
@@ -147,26 +167,59 @@ export default function TaskDetail() {
         )}
       </div>
 
-      <div className="page-content desktop-narrow">
+      <div
+        className="page-content desktop-narrow"
+        style={{ opacity: inactive ? 0.75 : 1 }}
+      >
         {error && <div className="error-banner">{error}</div>}
 
         {/* Category & Status */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <span className="category-badge" style={{ background: colors.bg, color: colors.text }}>
             {task.category}
           </span>
-          {task.status !== 'open' && (
-            <span className="category-badge" style={{
-              background: task.status === 'completed' ? '#ffedd5' : task.status === 'in_progress' ? '#dbeafe' : '#fef3c7',
-              color: task.status === 'completed' ? '#ea580c' : task.status === 'in_progress' ? '#2563eb' : '#d97706',
-            }}>
-              {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
+          {inactiveLabel && (
+            <span
+              className="category-badge"
+              style={{
+                background: 'var(--gray-200, #e5e7eb)',
+                color: 'var(--gray-600, #4b5563)',
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              {inactiveLabel}
+            </span>
+          )}
+          {typeof task.interestedCount === 'number' && task.interestedCount > 0 && (
+            <span
+              className="category-badge"
+              style={{
+                background: 'var(--primary-50)',
+                color: 'var(--primary)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Users size={12} /> {task.interestedCount} interested
             </span>
           )}
         </div>
 
         {/* Title */}
-        <h1 style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.3, marginBottom: 16 }}>{task.title}</h1>
+        <h1
+          style={{
+            fontSize: 22,
+            fontWeight: 800,
+            lineHeight: 1.3,
+            marginBottom: 16,
+            textDecoration: inactive ? 'line-through' : 'none',
+            color: inactive ? 'var(--gray-500)' : 'inherit',
+          }}
+        >
+          {task.title}
+        </h1>
 
         {/* Poster info */}
         <div
@@ -184,7 +237,9 @@ export default function TaskDetail() {
                   <Star size={12} fill="currentColor" /> {task.posterRating}
                 </span>
               )}
-              <span>{task.posterReviewCount} review{task.posterReviewCount !== 1 ? 's' : ''}</span>
+              <span>
+                {task.posterReviewCount} review{task.posterReviewCount !== 1 ? 's' : ''}
+              </span>
             </div>
           </div>
           <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--gray-400)' }}>
@@ -193,13 +248,22 @@ export default function TaskDetail() {
         </div>
 
         {/* Pay */}
-        <div style={{
-          background: 'var(--primary-50)', borderRadius: 'var(--radius-md)', padding: 16,
-          marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12,
-        }}>
+        <div
+          style={{
+            background: 'var(--primary-50)',
+            borderRadius: 'var(--radius-md)',
+            padding: 16,
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
           <DollarSign size={24} color="var(--primary)" />
           <div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--primary)' }}>${task.offeredPay}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--primary)' }}>
+              ${task.offeredPay}
+            </div>
             <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>Offered pay</div>
           </div>
         </div>
@@ -216,20 +280,25 @@ export default function TaskDetail() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gray-500)', fontSize: 12, marginBottom: 4 }}>
               <Calendar size={14} /> When
             </div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{task.dateType === 'asap' ? 'ASAP' : formatDate(task.dateTime)}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              {task.dateType === 'asap' ? 'ASAP' : formatDate(task.dateTime)}
+            </div>
           </div>
           <div style={{ background: 'var(--gray-50)', borderRadius: 'var(--radius-md)', padding: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gray-500)', fontSize: 12, marginBottom: 4 }}>
               <Clock size={14} /> Duration
             </div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{task.estimatedDuration || 'Not specified'}</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              {task.estimatedDuration || 'Not specified'}
+            </div>
           </div>
           <div style={{ background: 'var(--gray-50)', borderRadius: 'var(--radius-md)', padding: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gray-500)', fontSize: 12, marginBottom: 4 }}>
-              <Users size={14} /> Helpers
+              <Users size={14} /> Interested
             </div>
             <div style={{ fontWeight: 600, fontSize: 14 }}>
-              {task.helpersAccepted}/{task.helpersNeeded} filled
+              {task.interestedCount || 0}{' '}
+              {task.interestedCount === 1 ? 'person' : 'people'}
             </div>
           </div>
         </div>
@@ -248,62 +317,99 @@ export default function TaskDetail() {
             <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Photos</h3>
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
               {task.photos.map((photo, i) => (
-                <img key={i} src={photo} alt="" style={{ height: 120, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }} />
+                <img
+                  key={i}
+                  src={photo}
+                  alt=""
+                  style={{ height: 120, borderRadius: 'var(--radius-sm)', objectFit: 'cover' }}
+                />
               ))}
             </div>
           </div>
         )}
 
-        {/* Applicants (poster view) */}
-        {isOwner && task.applicants && (
+        {/* Assigned tasker (once completed) */}
+        {task.status === 'completed' && task.assignedTasker && (
+          <div
+            style={{
+              marginBottom: 20,
+              padding: 12,
+              background: '#fef3c7',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <CheckCircle size={18} color="#d97706" />
+            <div>
+              <div style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>
+                Completed by
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>
+                {task.assignedTasker.displayName}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Interested users list (poster view) */}
+        {isOwner && task.interestedUsers && (
           <div style={{ marginBottom: 20 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-              Applicants ({task.applicants.length})
+              Interested ({task.interestedUsers.length})
             </h3>
-            {task.applicants.length === 0 ? (
-              <p style={{ fontSize: 14, color: 'var(--gray-400)' }}>No one has applied yet.</p>
+            {task.interestedUsers.length === 0 ? (
+              <p style={{ fontSize: 14, color: 'var(--gray-400)' }}>
+                No one has expressed interest yet.
+              </p>
             ) : (
-              task.applicants.map(app => (
-                <div key={app.applicationId} style={{
-                  border: '1px solid var(--gray-200)', borderRadius: 'var(--radius-md)',
-                  padding: 12, marginBottom: 8,
-                }}>
+              task.interestedUsers.map((int) => (
+                <div
+                  key={int.interestId}
+                  style={{
+                    border: '1px solid var(--gray-200)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 12,
+                    marginBottom: 8,
+                  }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <div className="avatar avatar-sm" onClick={() => navigate(`/user/${app.user.id}`)} style={{ cursor: 'pointer' }}>
-                      {app.user.profilePhoto ? <img src={app.user.profilePhoto} alt="" /> : getInitials(app.user.displayName)}
+                    <div
+                      className="avatar avatar-sm"
+                      onClick={() => navigate(`/user/${int.user.id}`)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {int.user.profilePhoto ? (
+                        <img src={int.user.profilePhoto} alt="" />
+                      ) : (
+                        getInitials(int.user.displayName)
+                      )}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{app.user.displayName}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{int.user.displayName}</div>
                       <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
-                        {app.user.avgRating && <span style={{ color: 'var(--warning)' }}>★ {app.user.avgRating}</span>}
-                        {' '}{app.user.tasksCompleted} tasks done
+                        {int.user.avgRating && (
+                          <span style={{ color: 'var(--warning)' }}>★ {int.user.avgRating}</span>
+                        )}{' '}
+                        {int.user.tasksCompleted} tasks done
                       </div>
                     </div>
-                    <span className="category-badge" style={{
-                      background: app.status === 'accepted' ? '#ffedd5' : app.status === 'declined' ? '#fee2e2' : '#f3f4f6',
-                      color: app.status === 'accepted' ? '#ea580c' : app.status === 'declined' ? '#dc2626' : '#6b7280',
-                    }}>
-                      {app.status}
+                    <span style={{ fontSize: 11, color: 'var(--gray-400)' }}>
+                      {timeAgo(int.createdAt)}
                     </span>
                   </div>
-                  {app.user.bio && (
-                    <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 8 }}>{app.user.bio}</p>
+                  {int.user.bio && (
+                    <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 8 }}>
+                      {int.user.bio}
+                    </p>
                   )}
-                  {app.status === 'pending' && slotsOpen > 0 && (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="btn btn-primary btn-sm" onClick={() => handleAccept(app.applicationId)} disabled={actionLoading} style={{ flex: 1 }}>
-                        Accept
-                      </button>
-                      <button className="btn btn-secondary btn-sm" onClick={() => handleDecline(app.applicationId)} style={{ flex: 1 }}>
-                        Decline
-                      </button>
-                    </div>
-                  )}
-                  {app.status === 'accepted' && (
-                    <button className="btn btn-outline btn-sm btn-full" onClick={() => navigate(`/chat/${task.id}/${app.user.id}`)}>
-                      <MessageCircle size={14} /> Message
-                    </button>
-                  )}
+                  <button
+                    className="btn btn-outline btn-sm btn-full"
+                    onClick={() => navigate(`/chat/${task.id}/${int.user.id}`)}
+                  >
+                    <MessageCircle size={14} /> Message
+                  </button>
                 </div>
               ))
             )}
@@ -312,75 +418,221 @@ export default function TaskDetail() {
 
         {/* Actions */}
         <div style={{ paddingBottom: 20 }}>
-          {/* Tasker: apply */}
-          {!isOwner && task.status === 'open' && !task.myApplication && slotsOpen > 0 && (
-            <button className="btn btn-primary btn-full" onClick={handleApply} disabled={actionLoading} style={{ fontSize: 16, padding: 16 }}>
-              {actionLoading ? 'Applying...' : "I'll Do It"}
+          {/* Tasker: not yet interested -> show Message button */}
+          {!isOwner && acceptingInterest && !task.viewerIsInterested && (
+            <button
+              className="btn btn-primary btn-full"
+              onClick={handleMessagePoster}
+              disabled={actionLoading}
+              style={{ fontSize: 16, padding: 16 }}
+            >
+              <MessageCircle size={18} /> Message poster
             </button>
           )}
 
-          {/* Tasker: already applied */}
-          {!isOwner && task.myApplication && task.myApplication.status === 'pending' && (
+          {/* Tasker: already interested */}
+          {!isOwner && task.viewerIsInterested && (
             <div>
-              <div style={{ textAlign: 'center', padding: 16, background: 'var(--primary-50)', borderRadius: 'var(--radius-md)', marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, color: 'var(--primary)' }}>Application submitted! Waiting for poster to respond.</span>
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: 16,
+                  background: 'var(--primary-50)',
+                  borderRadius: 'var(--radius-md)',
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
+                  ✓ You're on the interested list
+                </span>
               </div>
-              <button className="btn btn-secondary btn-full btn-sm" onClick={handleCancelApplication}>
-                Cancel Application
+              <button
+                className="btn btn-primary btn-full"
+                onClick={() => navigate(`/chat/${task.id}/${task.posterId}`)}
+                style={{ marginBottom: 8 }}
+              >
+                <MessageCircle size={18} /> Continue chat
               </button>
-            </div>
-          )}
-
-          {/* Tasker: accepted */}
-          {!isOwner && task.myApplication && task.myApplication.status === 'accepted' && (
-            <div>
-              <div style={{ textAlign: 'center', padding: 16, background: '#ffedd5', borderRadius: 'var(--radius-md)', marginBottom: 8 }}>
-                <span style={{ fontWeight: 600, color: '#ea580c' }}>You've been accepted!</span>
-              </div>
-              <button className="btn btn-primary btn-full" onClick={() => navigate(`/chat/${task.id}/${task.posterId}`)}>
-                <MessageCircle size={18} /> Message Poster
-              </button>
-            </div>
-          )}
-
-          {/* Poster: mark complete */}
-          {isOwner && (task.status === 'in_progress' || task.status === 'open') && task.helpersAccepted > 0 && (
-            <button className="btn btn-primary btn-full" onClick={handleComplete} disabled={actionLoading} style={{ marginBottom: 8 }}>
-              <CheckCircle size={18} /> Mark as Complete
-            </button>
-          )}
-
-          {/* Completed: review prompt */}
-          {task.status === 'completed' && !isOwner && task.myApplication?.status === 'completed' && (
-            <button className="btn btn-primary btn-full" onClick={() => navigate(`/review/${task.id}/${task.posterId}`)}>
-              <Star size={18} /> Rate This Experience
-            </button>
-          )}
-          {task.status === 'completed' && isOwner && task.applicants?.some(a => a.status === 'completed') && (
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Rate your tasker(s):</p>
-              {task.applicants.filter(a => a.status === 'completed').map(a => (
-                <button key={a.user.id} className="btn btn-outline btn-full btn-sm" style={{ marginBottom: 6 }}
-                  onClick={() => navigate(`/review/${task.id}/${a.user.id}`)}>
-                  <Star size={14} /> Rate {a.user.displayName}
+              {task.status !== 'completed' && (
+                <button
+                  className="btn btn-secondary btn-full btn-sm"
+                  onClick={handleWithdraw}
+                >
+                  Withdraw interest
                 </button>
-              ))}
+              )}
             </div>
+          )}
+
+          {/* Tasker: task expired */}
+          {!isOwner && expired && !task.viewerIsInterested && (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: 16,
+                background: 'var(--gray-100)',
+                color: 'var(--gray-500)',
+                borderRadius: 'var(--radius-md)',
+                fontWeight: 600,
+              }}
+            >
+              This task has expired
+            </div>
+          )}
+
+          {/* Poster: open -> can mark filled or complete */}
+          {isOwner && task.status === 'open' && (
+            <>
+              <button
+                className="btn btn-primary btn-full"
+                onClick={() => setShowCompleteModal(true)}
+                disabled={actionLoading}
+                style={{ marginBottom: 8 }}
+              >
+                <CheckCircle size={18} /> Mark as Completed
+              </button>
+              <button
+                className="btn btn-secondary btn-full"
+                onClick={handleFill}
+                disabled={actionLoading}
+              >
+                <Lock size={18} /> Mark as Filled (stop new interest)
+              </button>
+            </>
+          )}
+
+          {/* Poster: filled -> can complete or reopen */}
+          {isOwner && task.status === 'filled' && (
+            <>
+              <button
+                className="btn btn-primary btn-full"
+                onClick={() => setShowCompleteModal(true)}
+                disabled={actionLoading}
+                style={{ marginBottom: 8 }}
+              >
+                <CheckCircle size={18} /> Mark as Completed
+              </button>
+              <button
+                className="btn btn-secondary btn-full"
+                onClick={handleReopen}
+                disabled={actionLoading}
+              >
+                <Unlock size={18} /> Reopen
+              </button>
+            </>
+          )}
+
+          {/* Completed: review prompt (tasker who did it) */}
+          {task.status === 'completed' &&
+            !isOwner &&
+            task.assignedTaskerId === user.id && (
+              <button
+                className="btn btn-primary btn-full"
+                onClick={() => navigate(`/review/${task.id}/${task.posterId}`)}
+              >
+                <Star size={18} /> Rate This Experience
+              </button>
+            )}
+
+          {/* Completed: poster can rate the assigned tasker */}
+          {task.status === 'completed' && isOwner && task.assignedTasker && (
+            <button
+              className="btn btn-outline btn-full"
+              onClick={() =>
+                navigate(`/review/${task.id}/${task.assignedTasker.id}`)
+              }
+            >
+              <Star size={16} /> Rate {task.assignedTasker.displayName}
+            </button>
           )}
         </div>
       </div>
 
+      {/* Complete task modal — pick who did it */}
+      {showCompleteModal && (
+        <div className="modal-overlay" onClick={() => setShowCompleteModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-header">
+              <h2>Who did this task?</h2>
+              <button onClick={() => setShowCompleteModal(false)} style={{ background: 'none' }}>
+                ✕
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 12 }}>
+              Pick the person who did it so we can credit them. Or tap "I don't remember"
+              to just mark it done.
+            </p>
+            <div style={{ maxHeight: 340, overflowY: 'auto', marginBottom: 12 }}>
+              {(task.interestedUsers || []).length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--gray-400)', padding: 12, textAlign: 'center' }}>
+                  No one expressed interest. Use "I don't remember" below.
+                </p>
+              ) : (
+                (task.interestedUsers || []).map((int) => (
+                  <button
+                    key={int.interestId}
+                    onClick={() => handleCompleteWith(int.user.id)}
+                    disabled={actionLoading}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: 10,
+                      marginBottom: 6,
+                      background: 'var(--gray-50)',
+                      border: '1px solid var(--gray-200)',
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div className="avatar avatar-sm">
+                      {int.user.profilePhoto ? (
+                        <img src={int.user.profilePhoto} alt="" />
+                      ) : (
+                        getInitials(int.user.displayName)
+                      )}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        {int.user.displayName}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                        {int.user.avgRating && (
+                          <span style={{ color: 'var(--warning)' }}>★ {int.user.avgRating}</span>
+                        )}{' '}
+                        {int.user.tasksCompleted} tasks done
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              className="btn btn-secondary btn-full"
+              onClick={() => handleCompleteWith(null)}
+              disabled={actionLoading}
+            >
+              <HelpCircle size={16} /> I don't remember who did it
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Report modal */}
       {showReport && (
         <div className="modal-overlay" onClick={() => setShowReport(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Report User</h2>
-              <button onClick={() => setShowReport(false)} style={{ background: 'none' }}>✕</button>
+              <button onClick={() => setShowReport(false)} style={{ background: 'none' }}>
+                ✕
+              </button>
             </div>
             <div className="input-group">
               <label>Reason</label>
-              <select value={reportReason} onChange={e => setReportReason(e.target.value)}>
+              <select value={reportReason} onChange={(e) => setReportReason(e.target.value)}>
                 <option value="">Select a reason</option>
                 <option value="spam">Spam or fake task</option>
                 <option value="inappropriate">Inappropriate content</option>
@@ -390,7 +642,9 @@ export default function TaskDetail() {
                 <option value="other">Other</option>
               </select>
             </div>
-            <button className="btn btn-danger btn-full" onClick={handleReport}>Submit Report</button>
+            <button className="btn btn-danger btn-full" onClick={handleReport}>
+              Submit Report
+            </button>
           </div>
         </div>
       )}

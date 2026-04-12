@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Onboarding from './pages/Onboarding';
 import Login from './pages/Login';
-import Signup from './pages/Signup';
 import Home from './pages/Home';
 import TaskDetail from './pages/TaskDetail';
 import PostTask from './pages/PostTask';
@@ -33,7 +32,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/onboarding" element={<PublicRoute><Onboarding /></PublicRoute>} />
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-      <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+      <Route path="/signup" element={<Navigate to="/login" replace />} />
       <Route path="/" element={<PrivateRoute><Layout><Home /></Layout></PrivateRoute>} />
       <Route path="/task/:id" element={<PrivateRoute><Layout><TaskDetail /></Layout></PrivateRoute>} />
       <Route path="/post" element={<PrivateRoute><Layout><PostTask /></Layout></PrivateRoute>} />
