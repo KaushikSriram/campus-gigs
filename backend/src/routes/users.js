@@ -1,12 +1,12 @@
 const express = require('express');
-const auth = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
 const supabase = require('../database');
 const { formatUser } = require('./auth');
 
 const router = express.Router();
 
-// GET /api/users/:id — view a user's public profile
-router.get('/:id', auth, async (req, res) => {
+// GET /api/users/:id — view a user's public profile (public)
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const { data: user } = await supabase
       .from('users')

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Image } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Users, DollarSign } from 'lucide-react';
 import { api } from '../utils/api';
 import { CATEGORY_ICONS } from '../utils/helpers';
 
@@ -43,7 +43,7 @@ export default function PostTask() {
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState(1); // 1: form, 2: preview
+  const [step, setStep] = useState(1);
 
   const suggestion = PAY_SUGGESTIONS[category];
 
@@ -83,34 +83,62 @@ export default function PostTask() {
     return (
       <div className="page">
         <div className="page-header">
-          <button onClick={() => setStep(1)} style={{ background: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <ArrowLeft size={20} /> Edit
+          <button onClick={() => setStep(1)} className="btn btn-ghost btn-sm">
+            <ArrowLeft size={18} /> Edit
           </button>
-          <span style={{ fontWeight: 600 }}>Preview</span>
+          <h1>Preview</h1>
           <div style={{ width: 60 }} />
         </div>
         <div className="page-content desktop-narrow">
           {error && <div className="error-banner">{error}</div>}
           <div className="card" style={{ marginBottom: 20 }}>
-            <div style={{ padding: 16 }}>
-              <span className="category-badge" style={{ background: '#f3f4f6', color: '#6b7280', marginBottom: 8, display: 'inline-block' }}>
-                {category}
+            <div style={{ padding: 20 }}>
+              <span className="category-badge" style={{ 
+                background: 'var(--accent-light)', 
+                color: 'var(--accent)', 
+                marginBottom: 12, 
+                display: 'inline-block' 
+              }}>
+                {CATEGORY_ICONS[category]} {category}
               </span>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>{title}</h2>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)', marginBottom: 12 }}>${offeredPay}</div>
-              <div style={{ fontSize: 14, color: 'var(--gray-600)', marginBottom: 8 }}>📍 {location}</div>
-              <div style={{ fontSize: 14, color: 'var(--gray-600)', marginBottom: 8 }}>
-                🕒 {dateType === 'asap' ? 'ASAP' : dateTime ? new Date(dateTime).toLocaleString() : 'Not set'}
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 14, color: 'var(--text-primary)' }}>
+                {title}
+              </h2>
+              <div style={{ 
+                fontSize: 28, 
+                fontWeight: 700, 
+                color: 'var(--accent)', 
+                marginBottom: 16,
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                ${offeredPay}
               </div>
-              {estimatedDuration && <div style={{ fontSize: 14, color: 'var(--gray-600)', marginBottom: 8 }}>⏱ {estimatedDuration}</div>}
-              <div style={{ fontSize: 14, color: 'var(--gray-600)', marginBottom: 12 }}>👥 {helpersNeeded} helper{helpersNeeded > 1 ? 's' : ''} needed</div>
-              <p style={{ fontSize: 14, color: 'var(--gray-700)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{description}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--text-secondary)' }}>
+                  <MapPin size={16} style={{ color: 'var(--text-tertiary)' }} /> {location}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--text-secondary)' }}>
+                  <Clock size={16} style={{ color: 'var(--text-tertiary)' }} />
+                  {dateType === 'asap' ? 'ASAP' : dateTime ? new Date(dateTime).toLocaleString() : 'Not set'}
+                </div>
+                {estimatedDuration && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--text-secondary)' }}>
+                    ⏱ {estimatedDuration}
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'var(--text-secondary)' }}>
+                  <Users size={16} style={{ color: 'var(--text-tertiary)' }} /> {helpersNeeded} helper{helpersNeeded > 1 ? 's' : ''} needed
+                </div>
+              </div>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+                {description}
+              </p>
             </div>
           </div>
-          <button className="btn btn-primary btn-full" onClick={handleSubmit} disabled={loading} style={{ fontSize: 16, padding: 16 }}>
+          <button className="btn btn-primary btn-full" onClick={handleSubmit} disabled={loading} style={{ padding: '14px 18px' }}>
             {loading ? 'Posting...' : 'Post Task'}
           </button>
-          <button className="btn btn-secondary btn-full" onClick={() => setStep(1)} style={{ marginTop: 8 }}>
+          <button className="btn btn-secondary btn-full" onClick={() => setStep(1)} style={{ marginTop: 10 }}>
             Go Back & Edit
           </button>
         </div>
@@ -121,10 +149,10 @@ export default function PostTask() {
   return (
     <div className="page">
       <div className="page-header">
-        <button onClick={() => navigate(-1)} style={{ background: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <ArrowLeft size={20} />
+        <button onClick={() => navigate(-1)} className="btn btn-ghost btn-sm">
+          <ArrowLeft size={18} />
         </button>
-        <span style={{ fontWeight: 600 }}>Post a Task</span>
+        <h1>Post a Task</h1>
         <div style={{ width: 28 }} />
       </div>
       <div className="page-content desktop-narrow">
@@ -149,11 +177,15 @@ export default function PostTask() {
                 key={cat}
                 onClick={() => setCategory(cat)}
                 style={{
-                  padding: '10px 12px', borderRadius: 'var(--radius-md)',
-                  border: `2px solid ${category === cat ? 'var(--primary)' : 'var(--gray-200)'}`,
-                  background: category === cat ? 'var(--primary-50)' : 'white',
-                  textAlign: 'left', fontSize: 13, fontWeight: 500,
-                  color: category === cat ? 'var(--primary-dark)' : 'var(--gray-600)',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: `2px solid ${category === cat ? 'var(--accent)' : 'var(--border)'}`,
+                  background: category === cat ? 'var(--accent-light)' : 'var(--surface)',
+                  textAlign: 'left',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: category === cat ? 'var(--accent)' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
                 }}
               >
                 {CATEGORY_ICONS[cat]} {cat}
@@ -190,11 +222,15 @@ export default function PostTask() {
                 key={type}
                 onClick={() => setDateType(type)}
                 style={{
-                  flex: 1, padding: '10px', borderRadius: 'var(--radius-md)',
-                  border: `2px solid ${dateType === type ? 'var(--primary)' : 'var(--gray-200)'}`,
-                  background: dateType === type ? 'var(--primary-50)' : 'white',
-                  fontWeight: 600, fontSize: 13,
-                  color: dateType === type ? 'var(--primary-dark)' : 'var(--gray-600)',
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: 'var(--radius-md)',
+                  border: `2px solid ${dateType === type ? 'var(--accent)' : 'var(--border)'}`,
+                  background: dateType === type ? 'var(--accent-light)' : 'var(--surface)',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  color: dateType === type ? 'var(--accent)' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
                 }}
               >
                 {type === 'asap' ? 'ASAP' : 'Pick Date & Time'}
@@ -236,7 +272,7 @@ export default function PostTask() {
             step={1}
           />
           {suggestion && (
-            <p style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>
               Suggested range for {category}: ${suggestion.min}–${suggestion.max}
             </p>
           )}
@@ -244,24 +280,44 @@ export default function PostTask() {
 
         <div className="input-group">
           <label>Number of Helpers Needed</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <button
               onClick={() => setHelpersNeeded(Math.max(1, helpersNeeded - 1))}
-              style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--gray-100)', fontWeight: 700, fontSize: 18 }}
+              style={{ 
+                width: 40, 
+                height: 40, 
+                borderRadius: 'var(--radius-md)', 
+                background: 'var(--surface-hover)', 
+                border: '1px solid var(--border)',
+                fontWeight: 700, 
+                fontSize: 18,
+                color: 'var(--text-primary)',
+              }}
             >
               -
             </button>
-            <span style={{ fontSize: 20, fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{helpersNeeded}</span>
+            <span style={{ fontSize: 20, fontWeight: 700, minWidth: 24, textAlign: 'center' }}>
+              {helpersNeeded}
+            </span>
             <button
               onClick={() => setHelpersNeeded(Math.min(5, helpersNeeded + 1))}
-              style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--gray-100)', fontWeight: 700, fontSize: 18 }}
+              style={{ 
+                width: 40, 
+                height: 40, 
+                borderRadius: 'var(--radius-md)', 
+                background: 'var(--surface-hover)', 
+                border: '1px solid var(--border)',
+                fontWeight: 700, 
+                fontSize: 18,
+                color: 'var(--text-primary)',
+              }}
             >
               +
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
           <button className="btn btn-secondary" onClick={() => navigate(-1)} style={{ flex: 1 }}>
             Cancel
           </button>

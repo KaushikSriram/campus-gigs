@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = process.env.REACT_APP_API_URL || '/api';
 
 function getToken() {
   return localStorage.getItem('campusgig_token');

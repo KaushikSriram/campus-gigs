@@ -3,12 +3,27 @@ import { api } from '../utils/api';
 
 const AuthContext = createContext(null);
 
+const UNIVERSITY_KEY = 'campusgig_university';
+const TOKEN_KEY = 'campusgig_token';
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [university, setUniversityState] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginCallback, setLoginCallback] = useState(null);
+
+  // Load saved university and user on mount
+  useEffect(() => {
+    const savedUniversity = localStorage.getItem(UNIVERSITY_KEY);
+    if (savedUniversity) {
+      setUniversityState(savedUniversity);
+    }
+    loadUser();
+  }, []);
 
   const loadUser = useCallback(async () => {
-    const token = localStorage.getItem('campusgig_token');
+    const token = localStorage.getItem(TOKEN_KEY);
     if (!token) {
       setLoading(false);
       return;
@@ -16,18 +31,23 @@ export function AuthProvider({ children }) {
     try {
       const data = await api.getMe();
       setUser(data.user);
+      // Sync university from user profile
+      if (data.user?.university) {
+        setUniversityState(data.user.university);
+        localStorage.setItem(UNIVERSITY_KEY, data.user.university);
+      }
     } catch {
-      localStorage.removeItem('campusgig_token');
+      localStorage.removeItem(TOKEN_KEY);
     }
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadUser();
-  }, [loadUser]);
+  const setUniversity = (uni) => {
+    setUniversityState(uni);
+    localStorage.setItem(UNIVERSITY_KEY, uni);
+  };
 
   // Step 1: send a 6-digit code to the user's .edu email
-  // Returns { isNew: bool } so the UI knows to collect a display name
   const sendCode = async (email) => {
     return await api.sendCode({ email });
   };
@@ -35,13 +55,16 @@ export function AuthProvider({ children }) {
   // Step 2: verify the code (+ displayName if new) and sign in
   const verifyCode = async (email, code, displayName) => {
     const data = await api.verifyCode({ email, code, displayName });
-    localStorage.setItem('campusgig_token', data.token);
+    localStorage.setItem(TOKEN_KEY, data.token);
     setUser(data.user);
+    if (data.user?.university) {
+      setUniversity(data.user.university);
+    }
     return data;
   };
 
   const logout = () => {
-    localStorage.removeItem('campusgig_token');
+    localStorage.removeItem(TOKEN_KEY);
     setUser(null);
   };
 
@@ -54,8 +77,44 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Require login for an action - shows modal and calls callback on success
+  const requireLogin = (callback) => {
+    if (user) {
+      callback();
+      return;
+    }
+    setLoginCallback(() => callback);
+    setShowLoginModal(true);
+  };
+
+  const onLoginSuccess = () => {
+    setShowLoginModal(false);
+    if (loginCallback) {
+      loginCallback();
+      setLoginCallback(null);
+    }
+  };
+
+  const closeLoginModal = () => {
+    setShowLoginModal(false);
+    setLoginCallback(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, sendCode, verifyCode, logout, refreshUser }}>
+    <AuthContext.Provider value={{
+      user,
+      university,
+      loading,
+      setUniversity,
+      sendCode,
+      verifyCode,
+      logout,
+      refreshUser,
+      requireLogin,
+      showLoginModal,
+      onLoginSuccess,
+      closeLoginModal,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,11 +1,154 @@
 const express = require('express');
 const auth = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
 const supabase = require('../database');
 const { generateId, CATEGORIES, moderateContent, sanitize } = require('../utils/helpers');
 const { formatUser } = require('./auth');
 const { createNotification } = require('../services/notifications');
 
 const router = express.Router();
+
+// ================================================
+// Demo data fallback when Supabase is unavailable
+// ================================================
+const DEMO_TASKS = [
+  {
+    id: 'demo-1',
+    poster_id: 'demo-user-1',
+    poster: { display_name: 'Alex Chen', profile_photo: null },
+    title: 'Help moving furniture to new apartment',
+    category: 'Moving & Heavy Lifting',
+    description: 'Need 2 people to help me move a couch, desk, and some boxes from Home Park to Midtown. Should take about 2 hours.',
+    location: 'Home Park',
+    date_time: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    date_type: 'specific',
+    estimated_duration: '2 hours',
+    offered_pay: 50,
+    helpers_needed: 2,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'demo-2',
+    poster_id: 'demo-user-2',
+    poster: { display_name: 'Jordan Smith', profile_photo: null },
+    title: 'Pick up package from Amazon locker',
+    category: 'Delivery & Pickup',
+    description: 'I have a package at the Amazon locker near Tech Square but I\'m stuck in class all day. Can someone grab it for me?',
+    location: 'Tech Square',
+    date_time: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+    date_type: 'asap',
+    estimated_duration: '30 mins',
+    offered_pay: 15,
+    helpers_needed: 1,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'demo-3',
+    poster_id: 'demo-user-3',
+    poster: { display_name: 'Maya Patel', profile_photo: null },
+    title: 'Python tutoring for CS 1301',
+    category: 'Academic Help',
+    description: 'Struggling with recursion and data structures. Looking for someone who got an A in CS 1301 to help me study for the final.',
+    location: 'CULC',
+    date_time: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
+    date_type: 'specific',
+    estimated_duration: '1-2 hours',
+    offered_pay: 35,
+    helpers_needed: 1,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'demo-4',
+    poster_id: 'demo-user-4',
+    poster: { display_name: 'Marcus Williams', profile_photo: null },
+    title: 'Fix my laptop - won\'t turn on',
+    category: 'Tech Help',
+    description: 'My laptop suddenly stopped turning on. Probably a battery or charging issue. I\'ll pay for parts separately.',
+    location: 'North Ave Apartments',
+    date_time: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+    date_type: 'asap',
+    estimated_duration: '1 hour',
+    offered_pay: 25,
+    helpers_needed: 1,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'demo-5',
+    poster_id: 'demo-user-5',
+    poster: { display_name: 'Sarah Kim', profile_photo: null },
+    title: 'Grocery run to Publix',
+    category: 'Errands',
+    description: 'Need someone with a car to pick up groceries from Publix. I\'ll send you the list and Venmo for the groceries + your fee.',
+    location: 'Publix on 10th St',
+    date_time: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    date_type: 'specific',
+    estimated_duration: '45 mins',
+    offered_pay: 20,
+    helpers_needed: 1,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'demo-6',
+    poster_id: 'demo-user-6',
+    poster: { display_name: 'Tyler Johnson', profile_photo: null },
+    title: 'Deep clean studio apartment',
+    category: 'Cleaning & Organization',
+    description: 'Moving out and need to get my deposit back. Studio apartment, bathroom, and small kitchen need deep cleaning.',
+    location: 'Centennial Place',
+    date_time: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+    date_type: 'specific',
+    estimated_duration: '3 hours',
+    offered_pay: 75,
+    helpers_needed: 1,
+    photos: '[]',
+    status: 'open',
+    university: 'Georgia Tech',
+    created_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+  },
+];
+
+function formatDemoTask(t, anonymize = false) {
+  const posterName = anonymize ? anonymizeName(t.poster?.display_name) : t.poster?.display_name;
+  return {
+    id: t.id,
+    posterId: t.poster_id,
+    posterName,
+    posterPhoto: anonymize ? null : t.poster?.profile_photo,
+    posterRating: (Math.random() * 1.5 + 3.5).toFixed(1),
+    posterReviewCount: Math.floor(Math.random() * 15 + 3),
+    title: t.title,
+    category: t.category,
+    description: t.description,
+    location: t.location,
+    dateTime: t.date_time,
+    dateType: t.date_type,
+    estimatedDuration: t.estimated_duration,
+    offeredPay: t.offered_pay,
+    helpersNeeded: t.helpers_needed,
+    photos: [],
+    status: t.status,
+    university: t.university,
+    createdAt: t.created_at,
+    isOwner: false,
+    interestedCount: Math.floor(Math.random() * 5),
+    assignedTaskerId: null,
+  };
+}
 
 // ================================================
 // Helpers
@@ -40,22 +183,32 @@ function isExpired(task) {
 }
 
 // ================================================
-// GET /api/tasks — campus task feed
+// GET /api/tasks — campus task feed (public or authenticated)
 // ================================================
-router.get('/', auth, async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
-    const { category, minPay, maxPay, date, sort, search, status, includeExpired } = req.query;
+    const { category, minPay, maxPay, date, sort, search, status, includeExpired, university } = req.query;
 
-    const { data: blockedData } = await supabase
-      .from('blocks')
-      .select('blocked_id')
-      .eq('blocker_id', req.user.id);
-    const blockedIds = (blockedData || []).map((b) => b.blocked_id);
+    // Determine the university to filter by
+    const targetUniversity = req.user?.university || university;
+    if (!targetUniversity) {
+      return res.status(400).json({ error: 'University is required' });
+    }
+
+    // Get blocked users if logged in
+    let blockedIds = [];
+    if (req.user) {
+      const { data: blockedData } = await supabase
+        .from('blocks')
+        .select('blocked_id')
+        .eq('blocker_id', req.user.id);
+      blockedIds = (blockedData || []).map((b) => b.blocked_id);
+    }
 
     let query = supabase
       .from('tasks')
       .select('*, poster:users!poster_id(display_name, profile_photo)')
-      .eq('university', req.user.university);
+      .eq('university', targetUniversity);
 
     if (blockedIds.length > 0) {
       query = query.not('poster_id', 'in', `(${blockedIds.join(',')})`);
@@ -99,6 +252,15 @@ router.get('/', auth, async (req, res) => {
     let { data: tasks, error } = await query;
     if (error) {
       console.error('Tasks fetch error:', error);
+      // Fallback to demo data when Supabase is unavailable or tables don't exist
+      if (error.message?.includes('fetch failed') || error.code === 'ENOTFOUND' || error.code === 'PGRST205') {
+        console.log('Using demo data fallback');
+        const shouldAnonymize = !req.user;
+        const demoFiltered = DEMO_TASKS.filter(t => 
+          !targetUniversity || t.university === targetUniversity
+        );
+        return res.json({ tasks: demoFiltered.map(t => formatDemoTask(t, shouldAnonymize)), demo: true });
+      }
       return res.status(500).json({ error: 'Failed to fetch tasks' });
     }
 
@@ -113,8 +275,10 @@ router.get('/', auth, async (req, res) => {
       buildReviewMap(posterIds),
       buildInterestCountMap(taskIds),
     ]);
+    const viewerId = req.user?.id || null;
+    const shouldAnonymize = !req.user; // Anonymize names for non-logged-in users
     const formatted = (tasks || []).map((t) =>
-      formatTaskSync(t, req.user.id, reviewMap, interestMap)
+      formatTaskSync(t, viewerId, reviewMap, interestMap, shouldAnonymize)
     );
     res.json({ tasks: formatted });
   } catch (err) {
@@ -175,9 +339,9 @@ router.get('/mine', auth, async (req, res) => {
 });
 
 // ================================================
-// GET /api/tasks/:id — single task detail
+// GET /api/tasks/:id — single task detail (public or authenticated)
 // ================================================
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const { data: task, error } = await supabase
       .from('tasks')
@@ -189,10 +353,12 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    const result = await formatTask(task, req.user.id);
+    const viewerId = req.user?.id || null;
+    const shouldAnonymize = !req.user;
+    const result = await formatTask(task, viewerId, shouldAnonymize);
 
     // If the viewer is the poster, list all interested users.
-    if (task.poster_id === req.user.id) {
+    if (req.user && task.poster_id === req.user.id) {
       const { data: interests } = await supabase
         .from('task_applications')
         .select('*')
@@ -225,14 +391,17 @@ router.get('/:id', auth, async (req, res) => {
     }
 
     // Has the viewer expressed interest?
-    const { data: myInterest } = await supabase
-      .from('task_applications')
-      .select('id')
-      .eq('task_id', task.id)
-      .eq('tasker_id', req.user.id)
-      .maybeSingle();
-
-    result.viewerIsInterested = !!myInterest;
+    let viewerIsInterested = false;
+    if (req.user) {
+      const { data: myInterest } = await supabase
+        .from('task_applications')
+        .select('id')
+        .eq('task_id', task.id)
+        .eq('tasker_id', req.user.id)
+        .maybeSingle();
+      viewerIsInterested = !!myInterest;
+    }
+    result.viewerIsInterested = viewerIsInterested;
 
     // Populate assigned tasker info if set
     if (task.assigned_tasker_id) {
@@ -680,13 +849,19 @@ async function buildReviewMap(posterIds) {
   return map;
 }
 
-function formatTaskSync(t, viewerId, reviewMap, interestMap = {}) {
+// Fully anonymize name for non-logged-in users
+function anonymizeName(name) {
+  return 'Campus Student';
+}
+
+function formatTaskSync(t, viewerId, reviewMap, interestMap = {}, anonymize = false) {
   const stats = reviewMap[t.poster_id];
+  const posterName = anonymize ? anonymizeName(t.poster?.display_name) : t.poster?.display_name;
   return {
     id: t.id,
     posterId: t.poster_id,
-    posterName: t.poster?.display_name,
-    posterPhoto: t.poster?.profile_photo,
+    posterName,
+    posterPhoto: anonymize ? null : t.poster?.profile_photo,
     posterRating: stats ? Math.round((stats.sum / stats.count) * 10) / 10 : null,
     posterReviewCount: stats ? stats.count : 0,
     title: t.title,
@@ -708,12 +883,12 @@ function formatTaskSync(t, viewerId, reviewMap, interestMap = {}) {
   };
 }
 
-async function formatTask(t, viewerId) {
+async function formatTask(t, viewerId, anonymize = false) {
   const [reviewMap, interestMap] = await Promise.all([
     buildReviewMap([t.poster_id]),
     buildInterestCountMap([t.id]),
   ]);
-  return formatTaskSync(t, viewerId, reviewMap, interestMap);
+  return formatTaskSync(t, viewerId, reviewMap, interestMap, anonymize);
 }
 
 module.exports = router;

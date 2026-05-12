@@ -53,7 +53,8 @@ CREATE TABLE tasks (
   helpers_needed INTEGER DEFAULT 1,
   helpers_accepted INTEGER DEFAULT 0,
   photos TEXT DEFAULT '[]',
-  status TEXT DEFAULT 'open' CHECK(status IN ('open','in_progress','completed','cancelled')),
+  status TEXT DEFAULT 'open' CHECK(status IN ('open','filled','in_progress','completed','cancelled')),
+  assigned_tasker_id UUID REFERENCES users(id),
   university TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

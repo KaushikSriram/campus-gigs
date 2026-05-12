@@ -5,12 +5,24 @@ import {
   timeAgo,
   formatDate,
   getInitials,
-  CATEGORY_COLORS,
   isTaskInactive,
   taskInactiveLabel,
 } from '../utils/helpers';
 
-export default function TaskCard({ task }) {
+const CATEGORY_COLORS = {
+  'Moving & Heavy Lifting': { bg: '#FEE2E2', text: '#991B1B' },
+  'Delivery & Pickup': { bg: '#DBEAFE', text: '#1E40AF' },
+  'Academic Help': { bg: '#FEF3C7', text: '#92400E' },
+  'Tech Help': { bg: '#EDE9FE', text: '#5B21B6' },
+  'Errands': { bg: '#FFEDD5', text: '#9A3412' },
+  'Cleaning & Organization': { bg: '#FCE7F3', text: '#9D174D' },
+  'Assembly & Setup': { bg: '#FED7AA', text: '#9A3412' },
+  'Event Help': { bg: '#E9D5FF', text: '#6B21A8' },
+  'Creative & Design': { bg: '#CCFBF1', text: '#115E59' },
+  'Other': { bg: '#F3F4F6', text: '#374151' },
+};
+
+export default function TaskCard({ task, style }) {
   const navigate = useNavigate();
   const colors = CATEGORY_COLORS[task.category] || CATEGORY_COLORS['Other'];
   const inactive = isTaskInactive(task);
@@ -21,105 +33,69 @@ export default function TaskCard({ task }) {
       className="card"
       style={{
         cursor: 'pointer',
-        opacity: inactive ? 0.55 : 1,
-        position: 'relative',
-        transition: 'opacity 160ms ease',
+        opacity: inactive ? 0.6 : 1,
+        ...style,
       }}
       onClick={() => navigate(`/task/${task.id}`)}
     >
-      <div style={{ padding: 16 }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            marginBottom: 8,
-          }}
-        >
-          <div style={{ flex: 1, marginRight: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-              <span
-                className="category-badge"
-                style={{ background: colors.bg, color: colors.text, display: 'inline-block' }}
-              >
-                {task.category}
-              </span>
-              {inactiveLabel && (
-                <span
-                  className="category-badge"
-                  style={{
-                    background: 'var(--gray-200, #e5e7eb)',
-                    color: 'var(--gray-600, #4b5563)',
-                    textTransform: 'uppercase',
-                    fontSize: 10,
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  {inactiveLabel}
-                </span>
-              )}
-            </div>
-            <h3
-              style={{
-                fontSize: 15,
-                fontWeight: 700,
-                lineHeight: 1.3,
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textDecoration: inactive ? 'line-through' : 'none',
-                color: inactive ? 'var(--gray-500)' : 'inherit',
-              }}
-            >
-              {task.title}
-            </h3>
-          </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 800,
-                color: inactive ? 'var(--gray-500)' : 'var(--primary)',
-              }}
-            >
-              ${task.offeredPay}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            gap: 12,
-            fontSize: 13,
-            color: 'var(--gray-500)',
-            marginBottom: 10,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MapPin size={14} /> {task.location}
+      <div style={{ padding: '18px 20px' }}>
+        {/* Header: Category + Status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span
+            className="category-badge"
+            style={{ background: colors.bg, color: colors.text }}
+          >
+            {task.category}
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Clock size={14} /> {task.dateType === 'asap' ? 'ASAP' : formatDate(task.dateTime)}
-          </span>
-          {typeof task.interestedCount === 'number' && task.interestedCount > 0 && (
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                color: 'var(--primary)',
-                fontWeight: 600,
-              }}
-            >
-              <Users size={14} /> {task.interestedCount} interested
+          {inactiveLabel && (
+            <span className={`status-badge ${inactiveLabel.toLowerCase()}`}>
+              {inactiveLabel}
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Title */}
+        <h3 style={{
+          fontSize: 15,
+          fontWeight: 600,
+          lineHeight: 1.4,
+          marginBottom: 10,
+          color: inactive ? 'var(--text-tertiary)' : 'var(--text-primary)',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}>
+          {task.title}
+        </h3>
+
+        {/* Meta info */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px 14px',
+          fontSize: 13,
+          color: 'var(--text-secondary)',
+          marginBottom: 14,
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <MapPin size={14} style={{ color: 'var(--text-tertiary)' }} />
+            {task.location}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
+            {task.dateType === 'asap' ? 'ASAP' : formatDate(task.dateTime)}
+          </span>
+        </div>
+
+        {/* Footer: Poster + Price */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingTop: 14,
+          borderTop: '1px solid var(--border)',
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="avatar avatar-sm">
               {task.posterPhoto ? (
@@ -128,24 +104,33 @@ export default function TaskCard({ task }) {
                 getInitials(task.posterName)
               )}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--gray-600)' }}>
-              {task.posterName}
-            </span>
-            {task.posterRating && (
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  fontSize: 13,
-                  color: 'var(--warning)',
-                }}
-              >
-                <Star size={12} fill="currentColor" /> {task.posterRating}
-              </span>
-            )}
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                {task.posterName}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>
+                {task.posterRating && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 2, color: 'var(--warning)' }}>
+                    <Star size={11} fill="currentColor" /> {task.posterRating}
+                  </span>
+                )}
+                {typeof task.interestedCount === 'number' && task.interestedCount > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Users size={11} /> {task.interestedCount}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{timeAgo(task.createdAt)}</span>
+          
+          <div style={{
+            fontSize: 18,
+            fontWeight: 700,
+            color: inactive ? 'var(--text-tertiary)' : 'var(--accent)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            ${task.offeredPay}
+          </div>
         </div>
       </div>
     </div>
